@@ -263,7 +263,7 @@ pick_agent() {
 	for i in "${!found[@]}"; do say "  $((i + 1))) ${found[$i]}" >&2; done
 	read -r -p "Choice [1]: " i
 	i=${i:-1}
-	[[ $i =~ ^[0-9]+$ ]] && [ "$i" -ge 1 ] && [ "$i" -le ${#found[@]} ] || die "no such choice"
+	if ! [[ $i =~ ^[0-9]+$ ]] || [ "$i" -lt 1 ] || [ "$i" -gt ${#found[@]} ]; then die "no such choice"; fi
 	printf '%s' "${found[$((i - 1))]}"
 }
 
