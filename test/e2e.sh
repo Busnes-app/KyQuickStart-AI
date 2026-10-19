@@ -41,21 +41,23 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends openssh
  && chmod +x /usr/local/bin/docker
 CMD ["/usr/sbin/sshd", "-D", "-e"]
 EOF
-docker run -d --name "$name" --memory 256m --cpus 1 --pids-limit 128 -p 127.0.0.1::22 kyqs-ai-e2e >/dev/null
+docker run -d --name "$name" --memory 256m --cpus 1 --pids-limit 128 kyqs-ai-e2e >/dev/null
 docker exec -i "$name" sh -c 'install -d -m 700 -o admin -g admin ~admin/.ssh && cat > ~admin/.ssh/authorized_keys && chown admin ~admin/.ssh/authorized_keys' <"$HOME/.ssh/admin.pub"
-port=$(docker port "$name" 22/tcp | head -1 | sed 's/.*://')
+# The container's bridge address: add-host rightly refuses loopback (that is add-local's job).
+ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")
+port=22
 cat >"$HOME/.ssh/config" <<EOF
-Host 127.0.0.1
+Host $ip
   User admin
   IdentityFile $HOME/.ssh/admin
   UserKnownHostsFile $HOME/.ssh/known_hosts
   StrictHostKeyChecking accept-new
 EOF
-for _ in $(seq 30); do ssh -p "$port" -o BatchMode=yes 127.0.0.1 true 2>/dev/null && break; sleep 0.5; done
+for _ in $(seq 30); do ssh -p "$port" -o BatchMode=yes "$ip" true 2>/dev/null && break; sleep 0.5; done
 
 kyqs() { "$ROOT/kyqs-ai" "$@"; }
 
-out=$(echo y | kyqs add-host core 127.0.0.1 "$port" admin 2>&1) || fail "add-host: $out"
+out=$(echo y | kyqs add-host core "$ip" "$port" admin 2>&1) || fail "add-host: $out"
 grep -q 'ready: ssh kyq-core' <<<"$out" || fail "add-host did not finish: $out"
 grep -qxF "Include $HOME/.ssh/kyquickstart-ai/config" "$HOME/.ssh/config" || fail "Include line missing"
 [ "$(ssh kyq-core id -un)" = kyops ] || fail "agent does not log in as kyops"
@@ -63,16 +65,22 @@ ssh kyq-core 'sudo -n true' 2>/dev/null && fail "kyops has sudo"
 ssh kyq-core 'id -nG' | grep -qw docker || fail "kyops not in docker group"
 ok "add-host prepares kyops (docker group, no sudo) and pins the host key"
 
-out=$(kyqs add-host core 127.0.0.1 "$port" admin 2>&1) || fail "re-run add-host: $out"
+out=$(kyqs add-host core "$ip" "$port" admin 2>&1) || fail "re-run add-host: $out"
 [ "$(grep -c '^kyq-core ' "$HOME/.ssh/kyquickstart-ai/known_hosts")" = 1 ] || fail "duplicate pin"
 [ "$(docker exec "$name" grep -c restrict /home/kyops/.ssh/authorized_keys)" = 1 ] || fail "duplicate key"
 ok "add-host is idempotent"
+
+for self in 127.0.0.1 localhost "$(hostname)"; do
+	out=$(kyqs add-host me "$self" 2>&1) && fail "add-host accepted this computer ($self)"
+	grep -q 'kyqs-ai add-local' <<<"$out" || fail "no add-local hint for $self: $out"
+done
+ok "add-host sends this computer to add-local"
 
 kh=$HOME/.ssh/kyquickstart-ai/known_hosts
 cp "$kh" "$work/kh.good"
 ssh-keygen -q -t ed25519 -N '' -f "$work/other"
 printf 'kyq-core %s\n' "$(cut -d' ' -f1,2 "$work/other.pub")" >"$kh"
-out=$(kyqs add-host core 127.0.0.1 "$port" admin 2>&1) && fail "accepted a changed host key"
+out=$(kyqs add-host core "$ip" "$port" admin 2>&1) && fail "accepted a changed host key"
 grep -q 'DIFFERENT key' <<<"$out" || fail "wrong refusal: $out"
 cp "$work/kh.good" "$kh"
 ok "a changed host key is refused"
@@ -95,9 +103,10 @@ grep -q 'Password *hunter2-hunter2' "$run/handover.txt" || fail "handover missin
 [ "$(stat -c %a "$run/handover.txt")" = 600 ] || fail "handover not 0600"
 ok "handover reads secrets over ssh into a 0600 file"
 
-out=$(echo n | kyqs add-host --prepared alt 127.0.0.1 "$port" 2>&1) && fail "pinned without confirmation"
+out=$(echo n | kyqs add-host --prepared alt "$ip" "$port" 2>&1) && fail "pinned without confirmation"
 grep -q 'nothing pinned' <<<"$out" || fail "wrong refusal: $out"
-out=$(echo y | kyqs add-host --prepared alt 127.0.0.1 "$port" 2>&1) || fail "add-host --prepared: $out"
+grep -qx 'Host kyq-alt' "$HOME/.ssh/kyquickstart-ai/config" && fail "refused setup left kyq-alt registered"
+out=$(echo y | kyqs add-host --prepared alt "$ip" "$port" 2>&1) || fail "add-host --prepared: $out"
 [ "$(ssh kyq-alt id -un)" = kyops ] || fail "kyq-alt does not log in"
 ok "add-host --prepared pins only after the user confirms the fingerprint"
 
@@ -110,16 +119,21 @@ printf '%s\n' "$*" >kickoff.txt
 printf 'Suite\tsecret\tAdmin password\tkyq-core:/srv/ky/test/secret\n' >handover.tsv
 EOF2
 chmod +x "$work/bin/claude"
-out=$(printf 'n\nn\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "guided start: $out"
+# The state the first real run hit: an alias whose setup never finished.
+printf '\nHost kyq-ghost\n  HostName 192.0.2.1\n  HostKeyAlias kyq-ghost\n' >>"$HOME/.ssh/kyquickstart-ai/config"
+out=$(printf 'n\nn\ny\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "guided start: $out"
+grep -q 'kyq-ghost: host key not pinned' <<<"$out" || fail "half-set-up server not reported: $out"
 runs=("$XDG_STATE_HOME"/kyquickstart-ai/runs/2*/)
 run=${runs[-1]%/}
 grep -q 'Read ./PROMPT.md' "$run/kickoff.txt" || fail "agent not given the kickoff"
+grep -qx kyq-ghost "$run/hosts.txt" && fail "a target that is not ready was handed to the agent"
+grep -qx kyq-core "$run/hosts.txt" || fail "ready target missing from hosts.txt"
 grep -q 'Bash(ssh:\*)' "$run/.claude/settings.json" || fail "hands-off settings missing"
 grep -q '^hands-off: yes' "$run/launch.txt" || fail "launch.txt wrong"
 grep -q 'Admin password *hunter2-hunter2' "$run/handover.txt" || fail "handover not built after the agent exited"
 [ "$(stat -c %a "$run")" = 700 ] || fail "run folder not private"
 grep -q 'hunter2' <<<"$out" && fail "launcher printed a secret"
-ok "guided start runs the agent in a private run folder and builds the handover after it exits"
+ok "guided start skips targets that are not ready, runs the agent privately, builds the handover"
 
 # Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.
 (
@@ -135,6 +149,10 @@ printf 'Suite\tsecret\tAdmin password\tlocal:%s/agent-secret\n' "$KYQS_DATA" >ha
 EOF2
 	chmod +x "$work/localbin/"*
 	export PATH=$work/localbin:$PATH
+	printf '#!/bin/sh\nexit 1\n' >"$work/localbin/docker"
+	out=$("$ROOT/kyqs-ai" add-local 2>&1) && fail "add-local accepted an unreachable Docker"
+	grep -qE 'daemon is not answering|docker group|log out and back in' <<<"$out" || fail "no Docker diagnosis: $out"
+	printf '#!/bin/sh\nexit 0\n' >"$work/localbin/docker"
 	out=$(printf 'y\ny\nn\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "local start: $out"
 	[ -d "$KYQS_DATA" ] || fail "data dir not created"
 	runs=("$XDG_STATE_HOME"/kyquickstart-ai/runs/2*/)
@@ -157,7 +175,7 @@ docker exec "$name" id -nG kyops | grep -qw docker && fail "kyops still in docke
 docker exec "$name" test -d /srv/ky/test || fail "revoke touched /srv/ky"
 ok "revoke removes access and leaves data"
 
-kyqs add-host core 127.0.0.1 "$port" admin >/dev/null 2>&1 || fail "add-host after revoke"
+kyqs add-host core "$ip" "$port" admin >/dev/null 2>&1 || fail "add-host after revoke"
 [ "$(ssh kyq-core id -un)" = kyops ] || fail "access not restored after revoke"
 ok "add-host restores access after revoke"
 

@@ -43,6 +43,11 @@ No `chmod 777`, no `--privileged` unless a README requires it (record it), no di
 checks in final config. Do not install Docker or Kubernetes; if a server lacks them, stop and
 tell the user.
 
+**If a target does not work, do not repair access yourself.** Never pin a host key, edit
+`~/.ssh`, or wrap `docker` in `sg`/`newgrp`. Tell the user the exact fix (the launcher
+prints one for each problem with `kyqs-ai hosts`); if they change their groups during the run,
+they must log out and back in, then continue with `kyqs-ai resume`.
+
 **You have no admin rights, by design.** On a `kyq-<name>` server you log in as `kyops`:
 Docker access, no sudo. On `local` (the user's own computer) you run as the user, which is
 more power than you need: touch nothing outside `/srv/ky`, the run folder and Docker objects
@@ -183,26 +188,48 @@ Not offered: Holm (blocked) and everything the spec lists as rejected.
 5. The chosen Ky apps, then the chosen third-party apps.
 6. Linking (section 7), backups, verification, handover.
 
-### Leads to check (from a source review of older commits; unverified at current tags)
+### What earlier runs found
 
-Treat each as a question, not a fact. If one is confirmed at the release tag, it is a README
-finding: record where the README should have said it.
-- KyIdentity, KyNotes and KyPost share an external Docker network `kypost-net`
-  (`10.89.0.0/24`) that compose expects to exist but may not create.
-- Some compose files may not forward documented variables to the container (KyRecovery
-  `environment: []`; kyPulse and KyYard admin/SSO variables). Setting them in `.env` may do
-  nothing; an override file may be needed.
-- KyIdentity admin APIs need browser step-up. The scriptable path is its `apply-setup` bundle
-  (`docs/INSTALLER-SETUP.md`), which can create users, OIDC clients, roles and connectors.
-  Most Ky products also have an `apply-setup` command; check each product's installer doc.
-- Products differ in where the first admin password goes: a file in the data dir, a log line,
-  or an environment variable. Prefer setting it yourself from a generated secret file.
+Facts move between releases. Check each against the tag you install; when a gap is still
+there, it is a README finding: record where the README should have said it, even if this
+section told you the fix.
+
+**Confirmed by a full run (2026-10-19; KyIdentity v0.4.4, KyYard v0.4.3, others v0.4.2):**
+- `kypost-net` (`10.89.0.0/24`) is an external network for KyIdentity and KyNotes, but
+  KyPost's compose creates it, so start order decides. Create it first and mark it external
+  for KyPost: `docker network create --subnet 10.89.0.0/24 --ip-range 10.89.0.128/25 --gateway 10.89.0.1 kypost-net`
+  (the ip-range keeps dynamic addresses off the pinned `.2`, `.7`, `.10`).
+- KyRecovery's compose has `environment: []` and publishes `8095` on all interfaces; kyPulse
+  and KyCalendar also drop documented variables. Use an override file for environment and ports.
+- kyPulse and KyCalendar READMEs ask for `sudo chown` of bind mounts; named volumes in an
+  override avoid needing root.
+- Products trust only the stock CA bundle. With a private CA, mount a combined bundle (system
+  + yours) over `/etc/ssl/certs/ca-certificates.crt:ro` in each Ky container.
+- Every Ky release image carries a build attestation from the repo's `release-image.yml` at
+  the tag; the `gh attestation verify` recipe is in each compose file's comments. Verify
+  before pinning when `gh` is available.
+- KyIdentity's `apply-setup` creates both identities, OIDC clients, roles and connectors with
+  no browser: `docker compose exec -T kyidentity-server /usr/local/bin/kyidentity apply-setup --stage --file /data/installer/<uuid>/setup.json < setup.json`,
+  then `--file` and `--check`. Staged mode generates passwords and client secrets inside the
+  volume; `--export-client <id>` piped straight into the product's `apply-setup` moves a
+  secret without you seeing it. Admin APIs otherwise need browser step-up.
+- Eight Ky products accept the `ky.product-setup/1` bundle through their own `apply-setup`.
+  `resync-system --wait` in KyIdentity proves directory delivery per connector.
+- Every Ky product serves `/api/installer/network`: it reports the client IP, whether proxy
+  headers were trusted, and the scheme. Use it to verify proxy trust.
+- KyPost and KyDrive builds came from source at these tags; KyDrive's Euro-Office editor is
+  documented for Kubernetes only. KyMessage's installer is blocked by its stock environment,
+  and `matrix-init` expects a host binary. kyPulse's directory webhook answered 401.
+
+**Still unverified:**
+- Products differ in where the first admin password goes (data-dir file, log line, env var).
+  Prefer setting it yourself from a generated secret file.
 - Admin rights usually come from an app role such as `kynotes.admin`; KyDrive uses its own
   `set-directory-role` command; KyRecovery maps a `role`/`roles` claim.
-- KyDNS's SSO issuer field may default to a non-user domain when left blank. Always set it.
-- Several products refuse plain-HTTP KyRecovery URLs and private addresses unless a
-  `<PRODUCT>_BACKUP_ALLOW_PRIVATE_RECOVERY` opt-in is set.
-- Some compose files publish ports on all interfaces by default.
+- KyDNS needs its own LAN IP (ipvlan) and its SSO issuer may default to a foreign domain
+  when left blank; always set it.
+- Products refuse private-address KyRecovery URLs unless
+  `<PRODUCT>_BACKUP_ALLOW_PRIVATE_RECOVERY` is set.
 
 ## 5. Preflight (read-only)
 

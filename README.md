@@ -21,7 +21,7 @@ install. For the deterministic installer, see [KyQuickStart](https://github.com/
   [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) or
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; it puts the dashboard beside the agent.
 - **Where the apps run:** this computer, servers, or both. Each needs Linux with Docker Engine
-  and the compose plugin already installed. Servers need a login that can use `sudo` (once,
+  and the compose plugin already installed (Podman is not supported). Servers need a login that can use `sudo` (once,
   below). x86-64 is what the suite targets.
 - **A domain you control.** The apps need HTTPS hostnames (passkeys and sign-in require it).
   LAN-only is fine; public DNS records may point at private addresses.
@@ -79,7 +79,9 @@ Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH
    `~/.ssh/config` (it asks first), so `ssh kyq-<name>` works for you and the agent.
 5. Tests the agent's login and Docker access.
 
-It is safe to repeat. To do step 2 by hand at the server console instead:
+It is safe to repeat. If any step fails, the server is not registered, and the guided start
+skips (and names) any target that is not ready. `./kyqs-ai hosts` shows what is wrong with
+each one. An address that is this computer is refused; use `add-local` for that. To do step 2 by hand at the server console instead:
 
 ```sh
 # on your computer: print the agent's key as one base64 line (creates the key if needed)
