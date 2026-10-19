@@ -1,0 +1,153 @@
+# KyQuickStart AI
+
+Install the Ky suite with the AI coding agent you already use. `kyqs-ai` connects your
+servers over SSH, starts the agent with a tested installation prompt, shows a live status board
+while it works, and gives you a printable sheet of URLs, logins and passwords at the end.
+
+The agent installs the Ky apps and selected third-party apps, creates an **administrator** and
+an **everyday** user in KyIdentity, links every app to that sign-in, wires up backups and
+monitoring, and checks it all. It follows each product's own README, and it writes a report
+of every place a README was wrong or missing a step.
+
+**Status:** first test. Expect the agent to hit README gaps; that is what the report is for.
+No third-party app has completed suite admission yet, so the agent labels each one a test
+install. For the deterministic installer, see [KyQuickStart](https://github.com/Busnes-app/KyQuickStart).
+
+## What you need
+
+- **Your computer:** Linux or macOS with `bash`, `ssh`, `git`, and one supported agent CLI:
+  [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`),
+  [Codex CLI](https://github.com/openai/codex) (`codex`),
+  [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) or
+  [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; it puts the dashboard beside the agent.
+- **Servers:** Linux with Docker Engine and the compose plugin already installed, and a login
+  on each that can use `sudo` (needed once per server, below). x86-64 is what the suite targets.
+- **A domain you control.** The apps need HTTPS hostnames (passkeys and sign-in require it).
+  LAN-only is fine; public DNS records may point at private addresses.
+
+## Start
+
+```sh
+git clone https://github.com/Busnes-app/KyQuickStart-AI.git
+cd KyQuickStart-AI
+tmux new -s ky        # optional: dashboard opens in a side pane
+./kyqs-ai
+```
+
+The launcher walks you through:
+
+1. **Servers.** For each one, give a short name, its address and your admin login.
+2. **Agent.** It picks from the agents installed on your computer, and for Claude Code and Codex
+   asks whether to run hands-off (below).
+3. **The run.** The agent interviews you once (domain, apps, user names, proxy), checks the
+   servers, and shows a plan. After you say "go" it works on its own, and only comes back for
+   steps a person must do, batched together.
+4. **Handover.** When you exit the agent, the launcher builds the handover sheet and offers to
+   show and print it.
+
+Continue an interrupted run with `./kyqs-ai resume`. See all commands with `./kyqs-ai help`.
+
+## Connecting your servers over SSH
+
+`./kyqs-ai add-host <name> <address> [port] [admin-user]` (also offered by the guided start):
+
+1. Creates a dedicated key, `~/.ssh/kyquickstart-ai/id_ed25519`. A passphrase is recommended;
+   the launcher loads it into `ssh-agent` for 12 hours.
+2. Logs in **as you**, with `sudo`, once, and runs [`bin/prepare-host.sh`](bin/prepare-host.sh)
+   to create the agent's own login (next section).
+3. Pins the server's host key. The server reports its key fingerprint over your own login, and
+   the launcher refuses to continue if the network answers with a different one. A changed key
+   is never accepted later either.
+4. Adds `Host kyq-<name>` to `~/.ssh/kyquickstart-ai/config`, included from the top of
+   `~/.ssh/config` (it asks first), so `ssh kyq-<name>` works for you and the agent.
+5. Tests the agent's login and Docker access.
+
+It is safe to repeat. To do step 2 by hand at the server console instead:
+
+```sh
+# on your computer: print the key line in base64 (run ./kyqs-ai hosts once to create the key)
+base64 < ~/.ssh/kyquickstart-ai/id_ed25519.pub | tr -d '\n'; echo
+# on the server, as root, with a copy of bin/prepare-host.sh; note the KYQ-HOSTKEY line
+sh prepare-host.sh <the base64 line>
+# back on your computer; it asks you to compare the fingerprint with KYQ-HOSTKEY
+./kyqs-ai add-host --prepared <name> <address> [port]
+```
+
+## Letting the agent work without admin rights
+
+The agent never gets root or your password. `prepare-host.sh` creates a user `kyops` that:
+
+- logs in only with the KyQuickStart AI key (`restrict`: no forwarding, no terminal),
+- has no password and no `sudo`,
+- belongs to the `docker` group, and owns `/srv/ky`, where every app is installed.
+
+**Be aware:** membership of the `docker` group is equivalent to root on that server. That is
+unavoidable for a tool that installs containers. It is why the account is dedicated, key-only,
+and removed when you finish:
+
+```sh
+./kyqs-ai revoke <name>     # removes kyops' key and docker access; apps and data stay
+```
+
+Anything that really needs root (firewall, packages) is given to you as a command to run yourself.
+
+### Hands-off mode
+
+By default your agent asks before each command. Hands-off mode pre-approves only what the
+install needs, so the agent stops when it needs you, not for every `ssh`:
+
+| Agent | Hands-off | Supervised |
+|---|---|---|
+| Claude Code | run-folder `.claude/settings.json` allows `ssh`, `scp`, `git clone`, `curl`, `dig` and the run's helpers | normal prompts |
+| Codex | workspace-write sandbox with network, `-a never` | same sandbox, `-a on-request` |
+| Gemini CLI, opencode | not offered | normal prompts |
+
+In both modes the prompt tells the agent to ask before anything destructive. That is an
+instruction, not an enforcement: a misbehaving agent with Docker access could still read or
+delete anything on that server. Use supervised mode if you want to approve each command.
+
+## While it works
+
+The dashboard (`./kyqs-ai dashboard` in a second terminal, or the tmux side pane) shows each
+phase and app, what the agent is doing, recent events, and a **NEEDS YOU** banner when it is
+waiting for you. If it goes quiet for 10 minutes, the board says so.
+
+When the agent needs a secret from you (for example a DNS API token), it does not ask in chat.
+It gives you a command that stores it straight on the server:
+
+```sh
+./kyqs-ai put-secret kyq-<name> /srv/ky/<app>/secrets/<file>   # hidden input, stored 0600
+```
+
+## Secrets
+
+- The prompt has the agent generate secrets on the servers and move them by pipe, so the
+  values stay out of its conversation and your AI provider. This is an instruction the agent
+  follows, not a barrier: an agent that ignores it can read them. Logs it reads pass through
+  a redaction filter as a backstop, and the prompt tells it to report any secret it sees.
+- The handover sheet is assembled by [`bin/handover`](bin/handover) after the agent exits,
+  reading each secret straight from its server into a file only you can read (mode 0600).
+  Save the logins in a password manager, then `shred -u` the file.
+- The run folder is `~/.local/state/kyquickstart-ai/runs/<time>/` (mode 0700).
+
+## What you get
+
+| File in the run folder | Contents |
+|---|---|
+| `handover.txt` | URLs, administrator and everyday logins, break-glass admins, remaining manual steps |
+| `feedback.md` | Test report: what worked, what failed, and the README changes each repo needs |
+| `install-guide-draft.md` | The install sequence that worked, written for a newcomer |
+| `state.md` | The plan, decisions and everything created, for resuming and auditing |
+| `progress.log` | The dashboard's event log |
+
+## Development
+
+```sh
+shellcheck kyqs-ai bin/* test/*.sh
+test/unit.sh      # progress, dashboard, redact, handover
+test/e2e.sh       # needs Docker: add-host, key pinning, put-secret, handover, revoke
+```
+
+## License
+
+MIT. See [LICENSE.txt](LICENSE.txt).

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Build the printable handover from <run>/handover.tsv. Secrets are read straight from the
+# servers into a 0600 file; they never pass through the agent or this script's stdout.
+#
+# handover.tsv lines (tab-separated, written by the agent, holds no secret values):
+#   <section> <TAB> url|login|secret|step <TAB> <label> <TAB> <value>
+# For `secret`, value is where the secret lives: <ssh-host>:/abs/path or local:/abs/path.
+#
+# usage: handover [run-dir]
+set -euo pipefail
+
+run=${1:-.}
+manifest=$run/handover.tsv
+out=$run/handover.txt
+[ -f "$manifest" ] || {
+	echo "handover: no $manifest" >&2
+	exit 1
+}
+
+umask 077
+tmp=$(mktemp "$run/.handover.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+failed=0
+
+fetch() { # <host> <path>
+	if [[ ! $1 =~ ^[A-Za-z0-9._-]+$ ]] || [[ ! $2 =~ ^/[A-Za-z0-9._/@+-]+$ ]] || [[ $2 == *..* ]]; then
+		echo "refused: unsafe location $1:$2" >&2
+		return 1
+	fi
+	if [ "$1" = local ]; then
+		cat -- "$2"
+	else
+		ssh -o BatchMode=yes -- "$1" "cat -- '$2'" </dev/null
+	fi
+}
+
+{
+	echo "KyQuickStart AI — handover                     $(date '+%Y-%m-%d %H:%M')"
+	echo "Contains live administrator credentials. Save them in your password manager,"
+	echo "print if you must, then destroy this file:  shred -u '$out'"
+	section=
+	steps=()
+	while IFS=$'\t' read -r sec kind label value || [ -n "$sec" ]; do
+		[ -z "$sec" ] || [[ $sec == \#* ]] && continue
+		if [ "$kind" = step ]; then
+			steps+=("[$sec] $label${value:+ — $value}")
+			continue
+		fi
+		if [ "$sec" != "$section" ]; then
+			printf '\n== %s ==\n' "$sec"
+			section=$sec
+		fi
+		case $kind in
+		url | login) printf '  %-28s %s\n' "$label" "$value" ;;
+		secret)
+			if v=$(fetch "${value%%:*}" "${value#*:}"); then
+				if [[ $v == *$'\n'* ]]; then
+					printf '  %s:\n' "$label"
+					printf '%s\n' "$v" | sed 's/^/      /'
+				else
+					printf '  %-28s %s\n' "$label" "$v"
+				fi
+			else
+				printf '  %-28s !! could not read %s\n' "$label" "$value"
+				failed=1
+			fi
+			;;
+		*)
+			printf '  %-28s !! unknown kind %s\n' "$label" "$kind"
+			failed=1
+			;;
+		esac
+	done <"$manifest"
+	if [ ${#steps[@]} -gt 0 ]; then
+		printf '\n== Still to do by hand ==\n'
+		printf '  [ ] %s\n' "${steps[@]}"
+	fi
+} >"$tmp"
+
+mv -f "$tmp" "$out"
+trap - EXIT
+echo "handover written: $out (mode 0600)"
+[ "$failed" = 0 ] || {
+	echo "handover: some entries could not be read; see !! lines in the file" >&2
+	exit 1
+}

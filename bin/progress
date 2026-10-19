@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Append one event to the run's progress log, read by bin/dashboard.
+# usage: progress <phase> <item> <state> [note...]
+set -euo pipefail
+
+usage() {
+	echo "usage: progress <phase> <item> <todo|run|ok|warn|fail|wait|skip> [note]" >&2
+	exit 2
+}
+[ $# -ge 3 ] || usage
+case $3 in todo | run | ok | warn | fail | wait | skip) ;; *) usage ;; esac
+
+clean() { printf '%s' "$*" | tr '\t\r\n' '   '; }
+log=${KYQS_RUN:-.}/progress.log
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(date +%H:%M:%S)" "$(clean "$1")" "$(clean "$2")" "$3" "$(clean "${*:4}")" >>"$log"

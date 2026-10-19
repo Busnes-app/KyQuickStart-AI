@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Live status board for a KyQuickStart AI run. Reads <run>/progress.log only.
+# usage: dashboard [run-dir] [--once]
+set -euo pipefail
+
+run=.
+once=false
+for a in "$@"; do
+	case $a in
+	--once) once=true ;;
+	*) run=$a ;;
+	esac
+done
+log=$run/progress.log
+
+color=true
+[ -t 1 ] && [ -z "${NO_COLOR:-}" ] || color=false
+
+render() {
+	local cols now
+	cols=$(tput cols 2>/dev/null || echo 100)
+	now=$(date +%s)
+	[ -f "$log" ] || {
+		echo "KyQuickStart AI · waiting for the agent to start ($log)"
+		return
+	}
+	awk -F'\t' -v cols="$cols" -v now="$now" -v color="$color" -v tick="$((now % 10))" '
+	function c(code, s) { return color == "true" ? "\033[" code "m" s "\033[0m" : s }
+	function cut(s, n) { return length(s) > n ? substr(s, 1, n - 1) "…" : s }
+	function hms(t,   h, m) { h = int(t / 3600); m = int((t % 3600) / 60); return sprintf("%02d:%02d:%02d", h, m, t % 60) }
+	BEGIN {
+		icon["ok"] = c("32", "✔ done"); icon["run"] = c("36", "◐ busy"); icon["todo"] = c("2", "· next")
+		icon["warn"] = c("33", "▲ warn"); icon["fail"] = c("31;1", "✖ FAIL"); icon["wait"] = c("35;1", "◆ YOU ")
+		icon["skip"] = c("2", "– skip")
+		split("⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏", spin, " ")
+	}
+	NF < 5 { next }
+	{
+		if (!start) start = $1
+		last = $1
+		key = $3 SUBSEP $4
+		if (!(key in state)) { order[++n] = key; ph[n] = $3; it[n] = $4 }
+		state[key] = $5; note[key] = $6
+		recent[++r] = $2 "  " $3 "/" $4 "  " $5 (length($6) ? ": " $6 : "")
+	}
+	END {
+		for (i = 1; i <= n; i++) count[state[order[i]]]++
+		waiting = count["wait"] > 0
+		status = waiting ? c("35;1", "◆ waiting for you") : c("36", spin[tick + 1] " working")
+		print c("1", "KyQuickStart AI") "  ·  elapsed " hms(now - start) "  ·  " status
+		printf "%s\n", c("2", sprintf("%d done · %d busy · %d warn · %d failed · %d next", count["ok"], count["run"], count["warn"], count["fail"], count["todo"]))
+		print ""
+		for (i = 1; i <= n; i++) {
+			if (ph[i] != prev) { print c("1;34", "▸ " ph[i]); prev = ph[i] }
+			k = order[i]
+			printf "   %s  %-22s %s\n", icon[state[k]], cut(it[i], 22), cut(note[k], cols - 36)
+		}
+		print ""
+		print c("2", "recent")
+		for (i = (r > 6 ? r - 5 : 1); i <= r; i++) print c("2", "  " cut(recent[i], cols - 2))
+		if (waiting) {
+			print ""
+			for (i = 1; i <= n; i++) if (state[order[i]] == "wait")
+				print c("35;1", "  ◆ NEEDS YOU: " ph[i] "/" it[i] " — " note[order[i]])
+			print c("35", "    Answer in the agent window.")
+		} else if (now - last > 600) {
+			print ""
+			print c("33", "  No update for " hms(now - last) ". Check the agent window.")
+		}
+	}' "$log"
+}
+
+if $once; then
+	render
+	exit
+fi
+trap 'tput cnorm 2>/dev/null; exit' INT TERM
+tput civis 2>/dev/null || true
+while :; do
+	frame=$(render)
+	tput cup 0 0 2>/dev/null || printf '\033[H'
+	printf '%s\n' "$frame"
+	tput ed 2>/dev/null || printf '\033[J'
+	sleep 2
+done

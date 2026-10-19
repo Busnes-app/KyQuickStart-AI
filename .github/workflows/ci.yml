@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck -x kyqs-ai bin/* test/*.sh
+      - run: test/unit.sh
+      - run: test/e2e.sh
+
+  macos:
+    # The launcher runs on operator workstations: bash 3.2 and BSD tools.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: test/unit.sh
+      - run: bash -n kyqs-ai && ./kyqs-ai help >/dev/null
