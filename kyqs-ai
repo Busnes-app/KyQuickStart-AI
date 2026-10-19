@@ -7,7 +7,10 @@ ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 SSHD=$HOME/.ssh/kyquickstart-ai
 CONF=$SSHD/config
 KEY=$SSHD/id_ed25519
-RUNS=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai/runs
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai
+RUNS=$STATE/runs
+LOCAL=$STATE/local-host # present when this computer is an install target
+DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
 AGENTS=(claude codex gemini opencode)
 
 say() { printf '%s\n' "$*"; }
@@ -27,16 +30,20 @@ usage() {
 usage: kyqs-ai [command]
 
   start                          Guided start (default): servers, agent, run, handover
+  add-local                      Install on this computer too (no SSH; the agent acts as you)
   add-host [--prepared] <name> <address> [port] [admin-user]
                                  Prepare a server and pin its host key as ssh alias kyq-<name>.
                                  --prepared: you already ran bin/prepare-host.sh at its console
-  hosts                          List configured servers and check each one answers
-  put-secret <kyq-alias> <path>  Paste a secret straight onto a server (hidden input), e.g.
+  hosts                          List install targets and check each one answers
+  ssh-key                        Print the agent's public key as one base64 line, for running
+                                 bin/prepare-host.sh at a server console yourself
+  put-secret <target> <path>     Paste a secret straight onto local or kyq-<name> (hidden), e.g.
                                  a Cloudflare token the agent asked for. Path under /srv/ky/.
   dashboard [run-dir]            Live status board (latest run by default)
   resume                         Restart the agent on the latest run where it left off
   handover [run-dir]             Rebuild the printable handover sheet
   revoke <name> [admin-user]     Remove the agent's access to a server when you are done
+                                 (revoke local: stop using this computer as a target)
 EOF
 }
 
@@ -85,6 +92,27 @@ key_loaded() {
 }
 
 host_aliases() { [ -f "$CONF" ] && awk '$1 == "Host" && $2 != "kyq-*" {print $2}' "$CONF"; }
+targets() { # every install target, one per line: local first, then ssh aliases
+	[ -f "$LOCAL" ] && echo local
+	host_aliases || true
+}
+
+add_local() {
+	need docker
+	docker info >/dev/null 2>&1 || die "you cannot reach Docker on this computer. Start it, or add yourself to the docker group (sudo usermod -aG docker $(id -un), then log in again). Docker access is root-equivalent."
+	docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
+	if [ ! -d "$DATA" ]; then
+		say "Apps are installed under $DATA, owned by you. Creating it needs sudo once:"
+		say "  sudo install -d -m 750 -o $(id -un) -g $(id -gn) $DATA"
+		confirm "Run that now?" || die "create $DATA yourself, then re-run"
+		sudo install -d -m 750 -o "$(id -un)" -g "$(id -gn)" "$DATA"
+	fi
+	[ -w "$DATA" ] || die "$DATA exists but you cannot write to it; fix its owner yourself (nothing was changed)"
+	mkdir -p "$STATE"
+	: >"$LOCAL"
+	say "ready: local (this computer). The agent runs commands here as $(id -un), with your rights;"
+	say "use supervised mode if you want to approve each one."
+}
 
 remote_root() { # <alias> <admin> <script>: run a bundled script as root over the admin's own SSH
 	local admin=$2 addr port s
@@ -162,18 +190,26 @@ add_host() {
 
 hosts() {
 	local a any=
-	for a in $(host_aliases); do
+	for a in $(targets); do
 		any=1
-		if ssh -o ConnectTimeout=8 "$a" true </dev/null 2>/dev/null; then say "  ✔ $a"; else say "  ✖ $a (not answering)"; fi
+		if [ "$a" = local ]; then
+			if docker info >/dev/null 2>&1; then say "  ✔ local (this computer)"; else say "  ✖ local (Docker not reachable)"; fi
+		elif ssh -o ConnectTimeout=8 "$a" true </dev/null 2>/dev/null; then
+			say "  ✔ $a"
+		else
+			say "  ✖ $a (not answering)"
+		fi
 	done
-	[ -n "$any" ] || say "  no servers yet: kyqs-ai add-host <name> <address> [port] [admin-user]"
+	[ -n "$any" ] || say "  none yet: kyqs-ai add-local, or kyqs-ai add-host <name> <address> [port] [admin-user]"
 }
 
 # shellcheck disable=SC2029 # the path is validated, then expanded locally on purpose
 put_secret() {
-	[ $# = 2 ] || die "usage: kyqs-ai put-secret <kyq-alias> </srv/ky/... path>"
-	[[ $1 =~ ^kyq-[a-z0-9-]+$ ]] || die "alias must look like kyq-<name>"
-	[[ $2 =~ ^/srv/ky/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under /srv/ky/"
+	[ $# = 2 ] || die "usage: kyqs-ai put-secret <local|kyq-name> </srv/ky/... path>"
+	[[ $1 == local || $1 =~ ^kyq-[a-z0-9-]+$ ]] || die "target must be local or kyq-<name>"
+	local root=/srv/ky
+	[ "$1" = local ] && root=$DATA
+	[[ $2 == "$root"/* && $2 =~ ^/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under $root/"
 	local v
 	if [ -t 0 ]; then
 		read -r -s -p "Paste the secret (hidden), then Enter: " v
@@ -182,7 +218,7 @@ put_secret() {
 		printf '%s\n' "$v"
 	else
 		cat
-	fi | ssh "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && cat > '$2'"
+	fi | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
 }
 
@@ -205,7 +241,7 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
     "allow": [
       "Bash(ssh:*)", "Bash(scp:*)", "Bash(git clone:*)", "Bash(git -C:*)", "Bash(git ls-remote:*)",
       "Bash(curl:*)", "Bash(dig:*)", "Bash(getent:*)",
-      "Bash(./bin/progress:*)", "Bash(./bin/redact:*)", "Bash(./bin/handover:*)",
+      "Bash(./bin/on:*)", "Bash(./bin/progress:*)", "Bash(./bin/redact:*)", "Bash(./bin/handover:*)",
       "Read", "Edit", "Write"
     ]
   }
@@ -215,10 +251,11 @@ EOF
 		(cd "$run" && claude "$kick")
 		;;
 	codex)
-		local approval=on-request
+		local approval=on-request extra=()
 		[ "$hands" = yes ] && approval=never
+		grep -qx local "$run/hosts.txt" && extra=(--add-dir "$DATA")
 		(cd "$run" && codex -C "$run" -s workspace-write -c sandbox_workspace_write.network_access=true \
-			-a "$approval" "$kick")
+			${extra[@]+"${extra[@]}"} -a "$approval" "$kick")
 		;;
 	gemini) (cd "$run" && gemini -i "$kick") ;;
 	opencode) (cd "$run" && opencode --prompt "$kick") ;;
@@ -280,11 +317,13 @@ pick_mode() {
 
 start() {
 	need git awk sed
-	ssh_setup
-	key_loaded
-	say "Servers (the agent logs in as kyops: no sudo, no password, Docker access only):"
+	say "Install targets:"
 	hosts
-	while confirm "Add a server now?"; do
+	if [ ! -f "$LOCAL" ] && confirm "Install on this computer?"; then
+		(add_local) || say "  this computer not added; fix the problem above and try again"
+	fi
+	say "Remote servers are reached over SSH as kyops: no sudo, no password, Docker access only."
+	while confirm "Add a remote server?"; do
 		local n a p u
 		read -r -p "  short name (e.g. core, nas): " n
 		read -r -p "  address (hostname or IP): " a
@@ -292,7 +331,8 @@ start() {
 		read -r -p "  your admin login on it [$USER]: " u
 		(add_host "$n" "$a" "${p:-22}" "${u:-$USER}") || say "  not added; fix the problem above and try again"
 	done
-	[ -n "$(host_aliases)" ] || die "no servers configured"
+	[ -n "$(targets)" ] || die "no install targets: add this computer or a server"
+	[ -z "$(host_aliases)" ] || key_loaded
 
 	local agent hands run
 	agent=$(pick_agent)
@@ -301,13 +341,13 @@ start() {
 	run=$RUNS/$(date +%Y%m%d-%H%M%S)
 	mkdir -p "$run/bin"
 	cp "$ROOT/PROMPT.md" "$run/"
-	cp "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$run/bin/"
-	host_aliases >"$run/hosts.txt"
+	cp "$ROOT/bin/on" "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$run/bin/"
+	targets >"$run/hosts.txt"
 	printf 'agent: %s\nhands-off: %s\nlauncher: %s\nkyquickstart-ai: %s\n' "$agent" "$hands" "$ROOT/kyqs-ai" \
 		"$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)" >"$run/launch.txt"
 	say "Run folder: $run"
 	dashboard_hint "$run"
-	launch "$agent" "$hands" "$run" "You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Servers are listed in ./hosts.txt."
+	launch "$agent" "$hands" "$run" "You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."
 	finish "$run"
 }
 
@@ -316,7 +356,7 @@ resume() {
 	run=$(latest_run)
 	agent=$(sed -n 's/^agent: //p' "$run/launch.txt")
 	hands=$(sed -n 's/^hands-off: //p' "$run/launch.txt")
-	key_loaded
+	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
 	dashboard_hint "$run"
 	launch "$agent" "$hands" "$run" "You are resuming KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md, ./progress.log and ./feedback.md, and continue from the first unfinished step. Do not redo finished steps."
 	finish "$run"
@@ -324,6 +364,12 @@ resume() {
 
 revoke() {
 	[ $# -ge 1 ] || die "usage: kyqs-ai revoke <name> [admin-user]"
+	if [ "$1" = local ]; then
+		rm -f "$LOCAL"
+		say "This computer is no longer an install target. Apps and $DATA are untouched; nothing else to revoke,"
+		say "since the agent used your own account here."
+		return
+	fi
 	local alias=kyq-$1 admin=${2:-$USER}
 	grep -qx "Host $alias" "$CONF" 2>/dev/null || die "unknown server $alias"
 	remote_root "$alias" "$admin" "$ROOT/bin/revoke-host.sh"
@@ -334,8 +380,10 @@ cmd=${1:-start}
 [ $# -gt 0 ] && shift
 case $cmd in
 start) start ;;
+add-local) add_local ;;
 add-host) add_host "$@" ;;
-hosts) ssh_setup && hosts ;;
+hosts) hosts ;;
+ssh-key) ssh_setup && base64 <"$KEY.pub" | tr -d '\n' && echo ;;
 put-secret) put_secret "$@" ;;
 dashboard) "$ROOT/bin/dashboard" "${1:-$(latest_run)}" ;;
 resume) resume ;;

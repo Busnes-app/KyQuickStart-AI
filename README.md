@@ -20,8 +20,9 @@ install. For the deterministic installer, see [KyQuickStart](https://github.com/
   [Codex CLI](https://github.com/openai/codex) (`codex`),
   [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) or
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; it puts the dashboard beside the agent.
-- **Servers:** Linux with Docker Engine and the compose plugin already installed, and a login
-  on each that can use `sudo` (needed once per server, below). x86-64 is what the suite targets.
+- **Where the apps run:** this computer, servers, or both. Each needs Linux with Docker Engine
+  and the compose plugin already installed. Servers need a login that can use `sudo` (once,
+  below). x86-64 is what the suite targets.
 - **A domain you control.** The apps need HTTPS hostnames (passkeys and sign-in require it).
   LAN-only is fine; public DNS records may point at private addresses.
 
@@ -36,7 +37,8 @@ tmux new -s ky        # optional: dashboard opens in a side pane
 
 The launcher walks you through:
 
-1. **Servers.** For each one, give a short name, its address and your admin login.
+1. **Where to install.** This computer, one or more servers, or both. For each server give a
+   short name, its address and your admin login.
 2. **Agent.** It picks from the agents installed on your computer, and for Claude Code and Codex
    asks whether to run hands-off (below).
 3. **The run.** The agent interviews you once (domain, apps, user names, proxy), checks the
@@ -46,6 +48,21 @@ The launcher walks you through:
    show and print it.
 
 Continue an interrupted run with `./kyqs-ai resume`. See all commands with `./kyqs-ai help`.
+
+## Installing on this computer
+
+Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH is involved:
+
+- You need Docker access yourself (`docker info` works without `sudo`).
+- Apps go under `/srv/ky`, owned by you. If it doesn't exist, the launcher asks to run
+  `sudo install -d -m 750 -o $USER -g $USER /srv/ky` once.
+- The agent runs commands **as you**, with your rights, not as a separate login. The prompt
+  confines it to `/srv/ky`, the run folder and the containers it creates, and forbids `sudo`.
+  That is an instruction, not a barrier; choose supervised mode to approve each command.
+- Apps stop when the computer sleeps or shuts down, and other devices reach it at its LAN
+  address, so give it a fixed one. Good for trying the suite; use a server to keep it.
+
+`./kyqs-ai revoke local` stops offering this computer as a target; it removes nothing.
 
 ## Connecting your servers over SSH
 
@@ -65,8 +82,8 @@ Continue an interrupted run with `./kyqs-ai resume`. See all commands with `./ky
 It is safe to repeat. To do step 2 by hand at the server console instead:
 
 ```sh
-# on your computer: print the key line in base64 (run ./kyqs-ai hosts once to create the key)
-base64 < ~/.ssh/kyquickstart-ai/id_ed25519.pub | tr -d '\n'; echo
+# on your computer: print the agent's key as one base64 line (creates the key if needed)
+./kyqs-ai ssh-key
 # on the server, as root, with a copy of bin/prepare-host.sh; note the KYQ-HOSTKEY line
 sh prepare-host.sh <the base64 line>
 # back on your computer; it asks you to compare the fingerprint with KYQ-HOSTKEY

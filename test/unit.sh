@@ -43,4 +43,10 @@ grep -q '\[ \] \[A\] Enrol MFA' "$work/handover.txt" || fail "handover missing s
 [ "$(stat -c %a "$work/handover.txt" 2>/dev/null || stat -f %Lp "$work/handover.txt")" = 600 ] || fail "handover not 0600"
 ok "handover resolves secrets, refuses traversal, lists steps, writes 0600"
 
+[ "$("$ROOT/bin/on" local 'pwd')" = "$HOME" ] || fail "on local: not started in home"
+[ "$(printf 'piped' | "$ROOT/bin/on" local 'cat')" = piped ] || fail "on local: stdin lost"
+"$ROOT/bin/on" local 'exit 7' && fail "on local: exit status lost"
+"$ROOT/bin/on" evil 'true' 2>/dev/null && fail "on: accepted an unknown target"
+ok "on runs local commands from home with pipes and exit status, refuses unknown targets"
+
 echo "unit: all passed"

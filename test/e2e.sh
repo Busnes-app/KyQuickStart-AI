@@ -110,7 +110,7 @@ printf '%s\n' "$*" >kickoff.txt
 printf 'Suite\tsecret\tAdmin password\tkyq-core:/srv/ky/test/secret\n' >handover.tsv
 EOF2
 chmod +x "$work/bin/claude"
-out=$(printf 'n\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "guided start: $out"
+out=$(printf 'n\nn\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "guided start: $out"
 runs=("$XDG_STATE_HOME"/kyquickstart-ai/runs/2*/)
 run=${runs[-1]%/}
 grep -q 'Read ./PROMPT.md' "$run/kickoff.txt" || fail "agent not given the kickoff"
@@ -120,6 +120,36 @@ grep -q 'Admin password *hunter2-hunter2' "$run/handover.txt" || fail "handover 
 [ "$(stat -c %a "$run")" = 700 ] || fail "run folder not private"
 grep -q 'hunter2' <<<"$out" && fail "launcher printed a secret"
 ok "guided start runs the agent in a private run folder and builds the handover after it exits"
+
+# Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.
+(
+	export HOME=$work/home-local XDG_STATE_HOME=$work/state-local KYQS_DATA=$work/srv-ky
+	mkdir -p "$HOME" "$work/localbin"
+	printf '#!/bin/sh\nexit 0\n' >"$work/localbin/docker"
+	printf '#!/bin/sh\nexec "$@"\n' >"$work/localbin/sudo"
+	cat >"$work/localbin/claude" <<'EOF2'
+#!/bin/sh
+[ "$(cat hosts.txt)" = local ] || exit 3
+printf 'from-agent' | ./bin/on local 'umask 077; cat > "$KYQS_DATA/agent-secret"' || exit 4
+printf 'Suite\tsecret\tAdmin password\tlocal:%s/agent-secret\n' "$KYQS_DATA" >handover.tsv
+EOF2
+	chmod +x "$work/localbin/"*
+	export PATH=$work/localbin:$PATH
+	out=$(printf 'y\ny\nn\n1\ny\nn\nn\n' | env -u TMUX "$ROOT/kyqs-ai" 2>&1) || fail "local start: $out"
+	[ -d "$KYQS_DATA" ] || fail "data dir not created"
+	runs=("$XDG_STATE_HOME"/kyquickstart-ai/runs/2*/)
+	run=${runs[0]%/}
+	grep -q 'Admin password *from-agent' "$run/handover.txt" || fail "local handover: $out"
+	grep -q 'Bash(./bin/on:\*)' "$run/.claude/settings.json" || fail "bin/on not pre-approved"
+	[ ! -e "$HOME/.ssh" ] || fail "local-only start touched ~/.ssh"
+	echo 'pw-local' | "$ROOT/kyqs-ai" put-secret local "$KYQS_DATA/app/pw" >/dev/null
+	[ "$(stat -c %a "$KYQS_DATA/app/pw")" = 600 ] || fail "local put-secret not 0600"
+	"$ROOT/kyqs-ai" put-secret local "$work/outside" </dev/null 2>/dev/null && fail "local put-secret wrote outside the data dir"
+	"$ROOT/kyqs-ai" revoke local >/dev/null
+	"$ROOT/kyqs-ai" hosts | grep -q "local (this" && fail "revoke local did not remove the target"
+	[ -f "$KYQS_DATA/app/pw" ] || fail "revoke local touched data"
+) || exit 1
+ok "this computer as the only target: no SSH, data dir, local secrets, handover, revoke local"
 
 kyqs revoke core admin >/dev/null 2>&1 || fail "revoke failed"
 ssh -o ConnectTimeout=5 kyq-core true 2>/dev/null && fail "kyops can still log in after revoke"

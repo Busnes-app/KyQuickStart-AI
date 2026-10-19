@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run a shell command on one install target: `local` (this computer) or a kyq-<name> server.
+# usage: on <local|kyq-name> '<command>'   (stdin and stdout pass through, so pipes work)
+set -euo pipefail
+
+[ $# = 2 ] || {
+	echo "usage: on <local|kyq-name> '<command>'" >&2
+	exit 2
+}
+case $1 in
+local) cd ~ && exec sh -c "$2" ;; # same start directory as an ssh login
+kyq-*) exec ssh -- "$1" "$2" ;;
+*)
+	echo "on: unknown target $1 (expected local or kyq-<name>)" >&2
+	exit 2
+	;;
+esac

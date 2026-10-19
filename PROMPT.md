@@ -12,20 +12,20 @@ Read this whole file before doing anything. Re-read it after any context reset.
 
 **Secrets never pass through you.** Everything you print or read goes to your model provider
 and into a transcript. So:
-- Generate secrets **on the server**, into files: `ssh kyq-x 'umask 077; mkdir -p /srv/ky/<app>/secrets; head -c 32 /dev/urandom | base64 | tr -d "\n=" | tr "+/" "-_" > /srv/ky/<app>/secrets/<name>'`.
-- Move a secret between servers with a pipe whose output you never see:
-  `ssh kyq-a 'cat /srv/ky/a/secrets/x' | ssh kyq-b 'umask 077; cat > /srv/ky/b/secrets/x'`.
+- Generate secrets **on the server**, into files: `./bin/on <target> 'umask 077; mkdir -p /srv/ky/<app>/secrets; head -c 32 /dev/urandom | base64 | tr -d "\n=" | tr "+/" "-_" > /srv/ky/<app>/secrets/<name>'`.
+- Move a secret between targets with a pipe whose output you never see:
+  `./bin/on kyq-a 'cat /srv/ky/a/secrets/x' | ./bin/on local 'umask 077; cat > /srv/ky/b/secrets/x'`.
 - Feed secrets to apps through files (`env_file`, `*_FILE` variables, `--file`, stdin), built
-  **on the server** (`ssh kyq-x 'cd /srv/ky/app && printf "KEY=%s\n" "$(cat secrets/key)" > .env.runtime && chmod 600 .env.runtime'`).
+  **on the target** (`./bin/on <target> 'cd /srv/ky/app && printf "KEY=%s\n" "$(cat secrets/key)" > .env.runtime && chmod 600 .env.runtime'`).
 - Never `cat`, `echo`, `grep` or `docker inspect` anything that would show a secret value. Never
   put a secret on a command line you run locally. If a product only accepts a password as an
   argument, expand it on the server (`"$(cat secrets/x)"` inside the remote command) and record
   it as a finding.
-- Pipe every log you read through `./bin/redact`: `ssh kyq-x 'cd /srv/ky/app && docker compose logs --tail 80' | ./bin/redact`.
+- Pipe every log you read through `./bin/redact`: `./bin/on <target> 'cd /srv/ky/app && docker compose logs --tail 80' | ./bin/redact`.
   It is a backstop, not permission to print secrets.
 - When you need a secret only the user has (a DNS API token, a mail password), do **not** ask
   for it in chat. Tell them to run, in their own terminal:
-  `kyqs-ai put-secret kyq-<host> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
+  `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
   and add a step to rotate it in the handover.
 
@@ -43,8 +43,11 @@ No `chmod 777`, no `--privileged` unless a README requires it (record it), no di
 checks in final config. Do not install Docker or Kubernetes; if a server lacks them, stop and
 tell the user.
 
-**You have no admin rights, by design.** You log in as `kyops`: Docker access, no sudo. You
-own `/srv/ky` on each server. If something truly needs root, give the user the exact command
+**You have no admin rights, by design.** On a `kyq-<name>` server you log in as `kyops`:
+Docker access, no sudo. On `local` (the user's own computer) you run as the user, which is
+more power than you need: touch nothing outside `/srv/ky`, the run folder and Docker objects
+you create, and never use `sudo`. You own `/srv/ky` on every target. If something truly needs
+root, give the user the exact command
 to run themselves and record it as a finding.
 
 **Do not use the `kyquickstart` binary.** This run tests the README path. You may read the
@@ -56,7 +59,8 @@ The current directory is the run folder (private, mode 0700). In it:
 
 | Path | Purpose |
 |---|---|
-| `hosts.txt` | SSH aliases of the user's servers (`ssh kyq-<name>`, user `kyops`) |
+| `hosts.txt` | Install targets: `local` is the computer you run on, `kyq-<name>` are servers over SSH |
+| `bin/on <target> '<command>'` | Run a shell command on a target. **Use this for every server command**, local or remote; pipes between targets work |
 | `launch.txt` | Agent, mode, and the `launcher:` path. Write `kyqs-ai` commands for the user with that full path |
 | `bin/progress <phase> <item> <state> [note]` | Report status to the dashboard. States: `todo run ok warn fail wait skip` |
 | `bin/redact` | Filter for logs |
@@ -90,7 +94,10 @@ The user wants to hand you the job and walk away. Interrupt them as little as po
 ## 3. Interview (one message, then wait)
 
 Start with `./bin/progress preflight interview wait "answer the questions in the agent window"`.
-Read `hosts.txt` first and check each host answers (`ssh kyq-x true`). Then ask, in one
+Read `hosts.txt` first and check each target answers (`./bin/on <target> 'docker info >/dev/null'`).
+If `local` is a target, it is a personal computer: say that apps stop when it sleeps or shuts
+down, and that other devices reach it only at its LAN address (ask whether that address is
+fixed). Then ask, in one
 message, with your recommended answer for each:
 
 1. **Domain.** A domain they control (needed for HTTPS and passkeys). Default hostnames are
@@ -216,7 +223,7 @@ you need for non-destructive work.
 1. `./bin/progress install <App> run "..."`.
 2. Read the README and install docs at the tag. Note every step you had to change, add or skip.
 3. Ship the tagged tree to the server without needing git there:
-   `git -C src/<repo> archive <tag> | ssh kyq-x 'mkdir -p /srv/ky/<app>/src && tar -x -C /srv/ky/<app>/src'`.
+   `git -C src/<repo> archive <tag> | ./bin/on <target> 'mkdir -p /srv/ky/<app>/src && tar -x -C /srv/ky/<app>/src'`.
    Put your own files (override compose, `.env`, secrets) beside it in `/srv/ky/<app>/`, not
    inside `src/`.
 4. Resolve the published image to a digest and pin it. Build from source only if the README
@@ -269,12 +276,12 @@ Record their answers in `feedback.md`.
 ```
 <Section>	url	<Label>	https://...
 <Section>	login	<Label>	<username or email>
-<Section>	secret	<Label>	kyq-<host>:/srv/ky/<app>/secrets/<file>
+<Section>	secret	<Label>	<target>:/srv/ky/<app>/secrets/<file>
 <Section>	step	<What the user must still do>	<where/how>
 ```
 
 Sections: one per app, plus `Suite` (organization, admin and everyday logins), `Servers`
-(each `ssh kyq-x` alias and what runs there), `Proxy` (NPM admin URL and login if you
+(each target and what runs there), `Proxy` (NPM admin URL and login if you
 installed it). Include every secret a human might need: identity passwords, break-glass
 admins, NPM admin, Vaultwarden `ADMIN_TOKEN` plaintext, recovery pairing state. Run
 `./bin/handover . >/dev/null` to check it resolves (exit 0); **never open `handover.txt`**.
@@ -341,5 +348,6 @@ Mark each step that is not in any README today with **(not in README)**.
    - Exit this agent session; the launcher then offers to show and print the handover.
    - Save the logins in Vaultwarden or another password manager, then `shred -u` the file.
    - When nothing else needs doing, remove the agent's server access:
-     `kyqs-ai revoke <name>` for each server (keeps all apps and data).
+     `kyqs-ai revoke <name>` for each server (keeps all apps and data). For `local`
+     there is no agent login to remove; `kyqs-ai revoke local` just stops offering it.
    - Share `feedback.md` with the Ky maintainers.
