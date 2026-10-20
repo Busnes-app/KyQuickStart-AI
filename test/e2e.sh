@@ -163,6 +163,9 @@ EOF2
 	echo 'pw-local' | "$ROOT/kyqs-ai" put-secret local "$KYQS_DATA/app/pw" >/dev/null
 	[ "$(stat -c %a "$KYQS_DATA/app/pw")" = 600 ] || fail "local put-secret not 0600"
 	"$ROOT/kyqs-ai" put-secret local "$work/outside" </dev/null 2>/dev/null && fail "local put-secret wrote outside the data dir"
+	chmod 500 "$KYQS_DATA"
+	"$ROOT/kyqs-ai" hosts | grep -q 'not writable' || fail "unwritable data dir not reported"
+	chmod 750 "$KYQS_DATA"
 	"$ROOT/kyqs-ai" revoke local >/dev/null
 	"$ROOT/kyqs-ai" hosts | grep -q "local (this" && fail "revoke local did not remove the target"
 	[ -f "$KYQS_DATA/app/pw" ] || fail "revoke local touched data"

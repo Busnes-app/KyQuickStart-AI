@@ -17,6 +17,9 @@ and into a transcript. So:
   `./bin/on kyq-a 'cat /srv/ky/a/secrets/x' | ./bin/on local 'umask 077; cat > /srv/ky/b/secrets/x'`.
 - Feed secrets to apps through files (`env_file`, `*_FILE` variables, `--file`, stdin), built
   **on the target** (`./bin/on <target> 'cd /srv/ky/app && printf "KEY=%s\n" "$(cat secrets/key)" > .env.runtime && chmod 600 .env.runtime'`).
+- If you drive a browser, never take a snapshot or screenshot of a page while a password or
+  token field is filled: accessibility snapshots include input values. Snapshot before
+  typing or after the page has moved on.
 - Never `cat`, `echo`, `grep` or `docker inspect` anything that would show a secret value. Never
   put a secret on a command line you run locally. If a product only accepts a password as an
   argument, expand it on the server (`"$(cat secrets/x)"` inside the remote command) and record
@@ -102,28 +105,30 @@ Start with `./bin/progress preflight interview wait "answer the questions in the
 Read `hosts.txt` first and check each target answers (`./bin/on <target> 'docker info >/dev/null'`).
 If `local` is a target, it is a personal computer: say that apps stop when it sleeps or shuts
 down, and that other devices reach it only at its LAN address (ask whether that address is
-fixed). Then ask, in one
-message, with your recommended answer for each:
+fixed).
 
-1. **Domain.** A domain they control (needed for HTTPS and passkeys). Default hostnames are
-   `<app>.<domain>` (table in section 4); accept overrides.
-2. **Exposure.** LAN-only (recommended for a first install; public DNS records may point at
-   private IPs) or reachable from the internet (through which tunnel/VPS).
-3. **Reverse proxy and certificates.** (a) an existing Nginx Proxy Manager: you will add only
-   your own hosts through its API, never touch others; (b) install a new Nginx Proxy Manager on
-   a chosen server, certificates by DNS-01 (they place a DNS-provider token with `put-secret`);
-   (c) they run their own proxy: you hand them a route table and wait.
-4. **Apps.** Show the menu in section 4 as a table with install/skip for each, the dependency
-   notes, and a rough RAM total. KyIdentity is required.
-5. **Placement.** Which server hosts what, or "you decide" (you then propose it from preflight
-   numbers). KyRecovery must not share a disk with the data it protects (not the NAS).
-6. **People.** Organization name; the **administrator** login (e.g. `alex-admin`) and email;
-   the **everyday** login (e.g. `alex`) and email. These must be two different identities:
-   the admin identity administers apps and never does everyday work; the everyday identity has
-   no admin rights anywhere.
-7. **Recovery ceremony.** KyRecovery's key ceremony needs a person at a browser with a printer
-   to print custodian cards (k of n, e.g. 2 of 3). Now, later in this run, or skip backups.
-8. **Mail.** Optional SMTP relay for invitations/notifications (secret via `put-secret`).
+Keep the interview short: a dense first message was unreadable in practice. Send a
+**numbered form with your recommended answer already filled in** for each item, one line
+each, and ask the user to reply "ok" or change only the numbers they disagree with. Put the
+app menu (section 4) after the form as a compact table they can edit. Explain an item only
+if they ask.
+
+```
+1. Domain: <ask>            hostnames <app>.<domain>
+2. Exposure: LAN only       (public DNS may point at private IPs)
+3. Proxy + certs: new Nginx Proxy Manager on <target>, DNS-01 certificates
+                            (or: existing NPM, you add only your own hosts | your own proxy)
+4. Apps: see table below    KyIdentity required
+5. Placement: you decide    (from preflight; KyRecovery never on the NAS)
+6. People: org <ask>; admin login <name>-admin + email; everyday login <name> + email
+7. Recovery ceremony: later in this run (needs a person, a browser and a printer, k-of-n cards)
+8. Mail: Mailpit catcher for this test  (or your SMTP relay; needed for email verification)
+```
+
+Rules behind the defaults: the admin and everyday identities are always two separate
+accounts (admin never does everyday work; everyday has no admin rights anywhere); a DNS
+token or SMTP password arrives through `put-secret`, never in chat; on an existing proxy you
+touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.
 
@@ -221,6 +226,32 @@ section told you the fix.
   documented for Kubernetes only. KyMessage's installer is blocked by its stock environment,
   and `matrix-init` expects a host binary. kyPulse's directory webhook answered 401.
 
+**Third-party apps (same run; none has a template yet, so you write each compose file):**
+- Pattern that worked for 11 apps: KyIdentity client with admin/user roles (BookStack and
+  Forgejo everyday role `editor`), secret piped into `/srv/ky/<app>/secrets/oidc_client_secret`,
+  app on `kypost-net` with its database on a private per-app network, CA bundle via mount,
+  `NODE_EXTRA_CA_CERTS` or `REQUESTS_CA_BUNDLE`, mail via Mailpit.
+- KyIdentity's setup bundle accepts only HTTPS redirect URIs and confidential clients (no
+  public/PKCE-only client, no back-channel logout field). Immich mobile: use its HTTPS
+  override `/api/oauth/mobile-redirect`.
+- Vaultwarden: in a compose `env_file`, write the Argon2 `ADMIN_TOKEN` hash with every `$`
+  doubled, or compose mangles it.
+- LibreChat moved: `ghcr.io/librechat-ai/librechat:<tag>`. `OPENID_REQUIRED_ROLE=admin,user`
+  with `OPENID_REQUIRED_ROLE_PARAMETER_PATH=roles` admits both identities.
+- Immich: complete its first-admin registration with a separate local bootstrap account
+  before OAuth; its `roleClaim` mapping still left the KyIdentity admin non-admin (open).
+- Dolibarr: OIDC lacks PKCE, which KyIdentity requires, so sign-in fails (open). Config is
+  `llx_const` rows by SQL; users must pre-exist with login equal to `preferred_username`.
+- Home Assistant: needs `http.use_x_forwarded_for` with `trusted_proxies` set to the proxy's
+  /32, and hass-oidc-auth `network.tls_ca_path` for a private CA,
+  `features.include_groups_scope: false`, `claims.groups: roles`.
+- Paperless-ngx: the everyday SSO user gets no document permissions; grant them in its user
+  UI (no staff/superuser). Mealie and KyMessage chat reject an unverified email.
+- BookStack role external IDs and Forgejo `admin auth add-oauth --secret` need SQL/CLI; feed
+  secrets by stdin inside the container and record the argv exposure.
+- The CLI `backup-drill` of KyCalendar and KyMessage exits 0 even when it fails; read the
+  summary. Their admin-API drill passed.
+
 **Still unverified:**
 - Products differ in where the first admin password goes (data-dir file, log line, env var).
   Prefer setting it yourself from a generated secret file.
@@ -268,7 +299,9 @@ you need for non-destructive work.
 - **Everyday** (e.g. `alex`): gets each product's ordinary user role, no admin grant anywhere.
 Generate their initial passwords on the identity server (or use activation links if KyIdentity
 issues them), record the locations in `handover.tsv`, and add "enrol MFA/passkey for both" as
-a handover step. Products' own built-in break-glass admins (`admin` with a first-run password)
+a handover step. **Verify both email addresses** (KyIdentity sends a link once mail delivery
+works): some apps refuse an unverified email at sign-in (Mealie, KyMessage chat). Without a
+mail relay, install a local catcher such as Mailpit for the test and say so. Products' own built-in break-glass admins (`admin` with a first-run password)
 also go in the handover; tell the user which ones to keep, rename or disable.
 
 ## 7. Linking
@@ -282,7 +315,9 @@ For every installed app:
 - **Backups**: after the ceremony, pair each Ky product with KyRecovery
   (`pair generate --service <name>` on the KyRecovery server; the six-digit code is a secret,
   move it by pipe or have the user type it into the product UI). Run one backup and check the
-  deposit. If the ceremony was skipped, set a local backup directory per product and say so.
+  deposit. Until the ceremony is done **no backup exists at all**, not even a local one:
+  every product seals to the recovery key. Say this in the plan, the final board and the
+  handover, and never call a product "backed up" before its first verified deposit.
 - **Monitoring**: register each app's health URL in kyPulse; pair kyPulse with KyYard.
 - **Proxy trust**: set each product's trusted-proxy value to the proxy's exact address and,
   where the product reports it, confirm it sees the real client IP and `https`.
@@ -291,7 +326,10 @@ For every installed app:
 
 Automated checks (record each with `bin/progress verify <App> ok|fail`): container healthy;
 `https://` health URL answers; OIDC discovery reachable from inside the app's container; the
-app's login redirects to KyIdentity with the right `redirect_uri`; backups delivered.
+app's login redirects to KyIdentity with the right `redirect_uri`; backups delivered; every
+image pinned by digest (`docker compose config --images` per app, and `docker ps --format
+'{{.Names}} {{.Image}}'`: each must show `@sha256:` or an image you resolved from one), including
+companion containers such as databases, Redis and Matrix services.
 
 Then one batch of browser checks for the user, as a checklist with URLs:
 admin login works and shows admin features; everyday login works and shows none; everyday

@@ -122,12 +122,15 @@ docker_problem() { # why this computer's Docker is unusable for us, or nothing
 target_problem() { # <target>: why the agent cannot use it, or nothing
 	if [ "$1" = local ]; then
 		docker_problem
+		[ -w "$DATA" ] || echo "$DATA is missing or not writable by you; run kyqs-ai add-local"
 	elif ! ssh-keygen -F "$1" -f "$SSHD/known_hosts" >/dev/null 2>&1; then
 		echo "host key not pinned; finish setup with kyqs-ai add-host ${1#kyq-} <address>"
 	elif ! ssh -o ConnectTimeout=8 "$1" true </dev/null 2>/dev/null; then
 		echo "kyops cannot log in (server down, or key not loaded in ssh-agent?)"
 	elif ! ssh "$1" 'docker info >/dev/null 2>&1' </dev/null; then
 		echo "kyops cannot use Docker there"
+	elif ! ssh "$1" 'test -w /srv/ky' </dev/null; then
+		echo "/srv/ky is missing or not writable by kyops; re-run kyqs-ai add-host for it"
 	fi
 }
 

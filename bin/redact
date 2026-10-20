@@ -3,4 +3,5 @@
 # A backstop only; the rule is still never to print a secret.
 exec sed -E \
 	-e 's/((pass(word)?|Pass(word)?|PASS(WORD)?|secret|Secret|SECRET|token|Token|TOKEN|key|Key|KEY)[A-Za-z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?)[^"'"'"'[:space:],}|]+/\1[redacted]/g' \
-	-e 's/(Bearer|Basic) [A-Za-z0-9._~+\/=-]+/\1 [redacted]/g'
+	-e 's/(Bearer|Basic) [A-Za-z0-9._~+\/=-]+/\1 [redacted]/g' \
+	-e '/[Pp]air|[Cc]ode|CODE/ s/(^|[^0-9])[0-9]{6}([^0-9]|$)/\1[redacted]\2/g'

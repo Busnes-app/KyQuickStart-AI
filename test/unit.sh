@@ -29,16 +29,20 @@ grep -q '3 done · 0 busy' <<<"$board" || fail "dashboard: counts wrong"
 grep -q $'\033' <<<"$board" && fail "dashboard: color without a terminal"
 ok "dashboard shows latest state per item, counts and the needs-you banner"
 
-r=$(printf '%s\n' 'Username: admin | Password: abc123' 'KY_SESSION_SECRET=zz' 'Bearer eyJ.a.b' 'keyboard' | "$ROOT/bin/redact")
-grep -qE 'abc123|zz|eyJ' <<<"$r" && fail "redact leaked: $r"
+r=$(printf '%s\n' 'Username: admin | Password: abc123' 'KY_SESSION_SECRET=zz' 'Bearer eyJ.a.b' 'keyboard' \
+	'Pairing Code: 482913' '- [ap_1] kypulse (kypulse) — Code: 731058, Status: pending' 'listening on 8095 pid 123456' | "$ROOT/bin/redact")
+grep -qE 'abc123|zz|eyJ|482913|731058' <<<"$r" && fail "redact leaked: $r"
+grep -q 'pid 123456' <<<"$r" || fail "redact masked a number on an unrelated line"
 grep -qx keyboard <<<"$r" || fail "redact mangled a plain line"
-ok "redact masks password, secret and bearer values"
+ok "redact masks password, secret, bearer and pairing-code values"
 
 printf 'pw-1\n' >"$work/pw"
 printf 'A\turl\tSite\thttps://a\nA\tsecret\tPassword\tlocal:%s/pw\nA\tsecret\tEscape\tlocal:%s/../pw\nA\tstep\tEnrol MFA\tbrowser\n' "$work" "$work" >"$work/handover.tsv"
 "$ROOT/bin/handover" "$work" >/dev/null 2>&1 && fail "handover ignored an unsafe path"
 grep -q 'Password *pw-1' "$work/handover.txt" || fail "handover missing secret"
 grep -q '!! could not read' "$work/handover.txt" || fail "handover did not flag unsafe path"
+err=$("$ROOT/bin/handover" "$work" 2>&1 >/dev/null || true)
+grep -q 'handover.tsv line 3 (Escape)' <<<"$err" || fail "handover did not name the bad line: $err"
 grep -q '\[ \] \[A\] Enrol MFA' "$work/handover.txt" || fail "handover missing step"
 [ "$(stat -c %a "$work/handover.txt" 2>/dev/null || stat -f %Lp "$work/handover.txt")" = 600 ] || fail "handover not 0600"
 ok "handover resolves secrets, refuses traversal, lists steps, writes 0600"

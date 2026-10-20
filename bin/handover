@@ -40,7 +40,9 @@ fetch() { # <host> <path>
 	echo "print if you must, then destroy this file:  shred -u '$out'"
 	section=
 	steps=()
+	n=0
 	while IFS=$'\t' read -r sec kind label value || [ -n "$sec" ]; do
+		n=$((n + 1))
 		[ -z "$sec" ] || [[ $sec == \#* ]] && continue
 		if [ "$kind" = step ]; then
 			steps+=("[$sec] $label${value:+ — $value}")
@@ -62,11 +64,13 @@ fetch() { # <host> <path>
 				fi
 			else
 				printf '  %-28s !! could not read %s\n' "$label" "$value"
+				echo "handover.tsv line $n ($label): could not read $value" >&2
 				failed=1
 			fi
 			;;
 		*)
 			printf '  %-28s !! unknown kind %s\n' "$label" "$kind"
+			echo "handover.tsv line $n ($label): unknown kind '$kind' (use url, login, secret or step)" >&2
 			failed=1
 			;;
 		esac
@@ -81,6 +85,6 @@ mv -f "$tmp" "$out"
 trap - EXIT
 echo "handover written: $out (mode 0600)"
 [ "$failed" = 0 ] || {
-	echo "handover: some entries could not be read; see !! lines in the file" >&2
+	echo "handover: fix the lines above in handover.tsv, then run it again" >&2
 	exit 1
 }
