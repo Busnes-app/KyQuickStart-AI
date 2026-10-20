@@ -1,13 +1,14 @@
 # KyQuickStart AI
 
 Install the Ky suite with the AI coding agent you already use. `kyqs-ai` connects your
-servers over SSH, starts the agent with a tested installation prompt, shows a live status board
+servers over SSH, starts the agent with an installation prompt, shows a live status board
 while it works, and gives you a printable sheet of URLs, logins and passwords at the end.
 
-The agent installs the Ky apps and selected third-party apps, creates an **administrator** and
-an **everyday** user in KyIdentity, links every app to that sign-in, wires up backups and
-monitoring, and checks it all. It follows each product's own README, and it writes a report
-of every place a README was wrong or missing a step.
+The prompt directs the agent to install the selected Ky apps, create separate
+**administrator** and **everyday** users, configure selected identity/backup/monitoring
+integrations, and report the outcome. Completion depends on product readiness, supplied
+services and observed checks; launching an agent does not guarantee these steps succeeded.
+It follows each product’s README and records missing or incorrect instructions.
 
 **Status:** first test. Expect the agent to hit README gaps; that is what the report is for.
 No third-party app has completed suite admission yet, so the agent labels each one a test
@@ -158,6 +159,19 @@ It gives you a command that stores it straight on the server:
 | `install-guide-draft.md` | The install sequence that worked, written for a newcomer |
 | `state.md` | The plan, decisions and everything created, for resuming and auditing |
 | `progress.log` | The dashboard's event log |
+
+## Verification and readiness
+
+The launcher tests check launcher behavior, secret redaction, host-key handling and
+handover mechanics. The end-to-end harness uses disposable SSH infrastructure and a stub
+Docker command/agent; it is **not a full Ky-product install or recovery test**.
+
+Read each run’s `feedback.md`, `state.md` and handover before using the installation.
+Require separate observed evidence for email send/receive and verification links, real
+MFA approval, product access/offboarding, backup deposits, blob/bulk coverage, custodian
+card distribution and a scratch restore with the actual cards. A generated handover,
+screenshot, successful health response or synthetic recovery drill proves only its own
+scope. Keep passwords and real recovery shares out of public reports and promo images.
 
 ## Development
 
