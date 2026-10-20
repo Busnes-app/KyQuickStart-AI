@@ -113,14 +113,19 @@ Anything that really needs root (firewall, packages) is given to you as a comman
 
 ### Hands-off mode
 
-By default your agent asks before each command. Hands-off mode pre-approves only what the
-install needs, so the agent stops when it needs you, not for every `ssh`:
+By default your agent asks before each command. Hands-off mode pre-approves the commands
+the install uses, so the agent stops when it needs you, not for every `ssh`:
 
-| Agent | Hands-off | Supervised |
+| Agent | Hands-off pre-approves | Supervised |
 |---|---|---|
-| Claude Code | run-folder `.claude/settings.json` allows `ssh`, `scp`, `git clone`, `curl`, `dig` and the run's helpers | normal prompts |
-| Codex | workspace-write sandbox with network, `-a never` | same sandbox, `-a on-request` |
+| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact` or `./bin/handover`, plus the Read, Edit and Write tools with no path limit | normal prompts |
+| Codex | Runs `codex -s workspace-write -c sandbox_workspace_write.network_access=true -a never`: every command runs without asking, writes on this computer stay in the run folder (and `/srv/ky` when this computer is a target), network is on | same sandbox, `-a on-request` |
 | Gemini CLI, opencode | not offered | normal prompts |
+
+**These rules are not limited to your `kyq-*` servers.** `ssh`, `scp` and `curl` are approved
+for any host and any arguments, and Codex's sandbox lets every command reach the network.
+`./bin/on` runs whatever command it is given, on a `kyq-*` server or, with `local`, on this
+computer as you. The prompt is what keeps the agent on your targets.
 
 In both modes the prompt tells the agent to ask before anything destructive. That is an
 instruction, not an enforcement: a misbehaving agent with Docker access could still read or
