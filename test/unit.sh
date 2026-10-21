@@ -29,6 +29,28 @@ grep -q '3 done · 0 busy' <<<"$board" || fail "dashboard: counts wrong"
 grep -q $'\033' <<<"$board" && fail "dashboard: color without a terminal"
 ok "dashboard shows latest state per item, counts and the needs-you banner"
 
+tall=$work/tall
+mkdir -p "$tall"
+for i in $(seq 30); do KYQS_RUN=$tall $p install "App$i" ok "healthy"; done
+KYQS_RUN=$tall $p install Busy run "pulling images"
+KYQS_RUN=$tall $p identity "admin MFA" wait "enrol a passkey"
+board=$(LINES=20 NO_COLOR=1 "$ROOT/bin/dashboard" "$tall" --once)
+[ "$(wc -l <<<"$board")" -le 20 ] || fail "dashboard taller than the screen: $board"
+grep -q '◐ busy  Busy' <<<"$board" || fail "dashboard hid an unfinished item to fit: $board"
+grep -q 'NEEDS YOU: identity/admin MFA' <<<"$board" || fail "dashboard cut the needs-you banner: $board"
+grep -q '30 done or skipped, hidden' <<<"$board" || fail "dashboard did not say what it hid: $board"
+[ "$(NO_COLOR=1 "$ROOT/bin/dashboard" "$tall" --once | grep -c '✔ done')" = 30 ] || fail "dashboard cut a board with no height limit"
+ok "dashboard fits a tall board to the screen, keeping unfinished items and the needs-you banner"
+
+LINES=12 TERM=xterm "$ROOT/bin/dashboard" "$tall" >"$work/live" 2>/dev/null &
+live=$!
+for _ in $(seq 50); do grep -q recent "$work/live" 2>/dev/null && break; sleep 0.1; done
+kill "$live" 2>/dev/null || true
+wait "$live" 2>/dev/null || true
+[ "$(wc -l <"$work/live")" -lt 12 ] || fail "live dashboard frame would scroll a 12-line screen"
+[ "$(grep -c $'\033\\[K' "$work/live")" = 12 ] || fail "live dashboard does not clear every line to its end"
+ok "live dashboard frame fits the screen and clears each line to its end"
+
 r=$(printf '%s\n' 'Username: admin | Password: abc123' 'KY_SESSION_SECRET=zz' 'Bearer eyJ.a.b' 'keyboard' \
 	'Pairing Code: 482913' '- [ap_1] kypulse (kypulse) — Code: 731058, Status: pending' 'listening on 8095 pid 123456' | "$ROOT/bin/redact")
 grep -qE 'abc123|zz|eyJ|482913|731058' <<<"$r" && fail "redact leaked: $r"

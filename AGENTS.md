@@ -26,7 +26,8 @@ READMEs. The deliverables of a run are the installed suite, a handover sheet, `f
   `bin/handover` after the agent exits. `handover.tsv` holds locations, never values.
 - The agent's server login `kyops` is key-only (`restrict`), passwordless, sudo-less, in the
   `docker` group, owner of `/srv/ky`. Docs must say docker group is root-equivalent.
-  `revoke` removes access and never touches apps or `/srv/ky`.
+  `revoke` removes access and never touches apps or `/srv/ky`; it leaves an empty
+  `<state>/revoked/kyq-<name>` so `hosts` can say so, and `add-host` removes that file.
 - Install targets are `local` (this computer, no SSH, the agent runs as the user) and
   `kyq-<name>` servers. The agent reaches every target through `bin/on`, so the prompt and
   hands-off allow-list are the same for both. Local mode never touches `~/.ssh`; `KYQS_DATA`

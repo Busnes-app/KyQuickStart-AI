@@ -109,6 +109,9 @@ and removed when you finish:
 ./kyqs-ai revoke <name>     # removes kyops' key and docker access; apps and data stay
 ```
 
+After that, `./kyqs-ai hosts` lists the server as revoked. `./kyqs-ai add-host` with the
+same name and address gives the agent access again.
+
 Anything that really needs root (firewall, packages) is given to you as a command to run yourself.
 
 ### Hands-off mode
@@ -135,7 +138,8 @@ delete anything on that server. Use supervised mode if you want to approve each 
 
 The dashboard (`./kyqs-ai dashboard` in a second terminal, or the tmux side pane) shows each
 phase and app, what the agent is doing, recent events, and a **NEEDS YOU** banner when it is
-waiting for you. If it goes quiet for 10 minutes, the board says so.
+waiting for you. If it goes quiet for 10 minutes, the board says so. When the board is taller
+than the window, it hides finished items first, then older events.
 
 When the agent needs a secret from you (for example a DNS API token), it does not ask in chat.
 It gives you a command that stores it straight on the server:
