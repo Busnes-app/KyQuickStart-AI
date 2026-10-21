@@ -16,18 +16,29 @@ log=$run/progress.log
 color=true
 [ -t 1 ] && [ -z "${NO_COLOR:-}" ] || color=false
 
-render() {
-	local cols now
+render() { # [rows]: fit the board into this many lines (0: no limit)
+	local rows=${1:-0} cols now
 	cols=$(tput cols 2>/dev/null || echo 100)
 	now=$(date +%s)
 	[ -f "$log" ] || {
 		echo "KyQuickStart AI · waiting for the agent to start ($log)"
 		return
 	}
-	awk -F'\t' -v cols="$cols" -v now="$now" -v color="$color" -v tick="$((now % 10))" '
+	awk -F'\t' -v cols="$cols" -v rows="$rows" -v now="$now" -v color="$color" -v tick="$((now % 10))" '
 	function c(code, s) { return color == "true" ? "\033[" code "m" s "\033[0m" : s }
 	function cut(s, n) { return length(s) > n ? substr(s, 1, n - 1) "…" : s }
 	function hms(t,   h, m) { h = int(t / 3600); m = int((t % 3600) / 60); return sprintf("%02d:%02d:%02d", h, m, t % 60) }
+	function emit(s) { out[++lines] = s }
+	# The item rows with their phase headers into out[]; done and skipped ones too unless hide.
+	function items(hide,   i, k, prev, hidden) {
+		for (i = 1; i <= n; i++) {
+			k = order[i]
+			if (hide && (state[k] == "ok" || state[k] == "skip")) { hidden++; continue }
+			if (ph[i] != prev) { emit(c("1;34", "▸ " ph[i])); prev = ph[i] }
+			emit(sprintf("   %s  %-22s %s", icon[state[k]], cut(it[i], 22), cut(note[k], cols - 36)))
+		}
+		if (hidden) emit(c("2", "   " hidden " done or skipped, hidden to fit the screen"))
+	}
 	BEGIN {
 		icon["ok"] = c("32", "✔ done"); icon["run"] = c("36", "◐ busy"); icon["todo"] = c("2", "· next")
 		icon["warn"] = c("33", "▲ warn"); icon["fail"] = c("31;1", "✖ FAIL"); icon["wait"] = c("35;1", "◆ YOU ")
@@ -47,39 +58,52 @@ render() {
 		for (i = 1; i <= n; i++) count[state[order[i]]]++
 		waiting = count["wait"] > 0
 		status = waiting ? c("35;1", "◆ waiting for you") : c("36", spin[tick + 1] " working")
-		print c("1", "KyQuickStart AI") "  ·  elapsed " hms(now - start) "  ·  " status
-		printf "%s\n", c("2", sprintf("%d done · %d busy · %d warn · %d failed · %d next", count["ok"], count["run"], count["warn"], count["fail"], count["todo"]))
-		print ""
-		for (i = 1; i <= n; i++) {
-			if (ph[i] != prev) { print c("1;34", "▸ " ph[i]); prev = ph[i] }
-			k = order[i]
-			printf "   %s  %-22s %s\n", icon[state[k]], cut(it[i], 22), cut(note[k], cols - 36)
-		}
-		print ""
-		print c("2", "recent")
-		for (i = (r > 6 ? r - 5 : 1); i <= r; i++) print c("2", "  " cut(recent[i], cols - 2))
+		emit(c("1", "KyQuickStart AI") "  ·  elapsed " hms(now - start) "  ·  " status)
+		emit(c("2", sprintf("%d done · %d busy · %d warn · %d failed · %d next", count["ok"], count["run"], count["warn"], count["fail"], count["todo"])))
+		emit("")
+		head = lines
 		if (waiting) {
-			print ""
+			tail[++t] = ""
 			for (i = 1; i <= n; i++) if (state[order[i]] == "wait")
-				print c("35;1", "  ◆ NEEDS YOU: " ph[i] "/" it[i] " — " note[order[i]])
-			print c("35", "    Answer in the agent window.")
+				tail[++t] = c("35;1", "  " cut("◆ NEEDS YOU: " ph[i] "/" it[i] " — " note[order[i]], cols - 3))
+			tail[++t] = c("35", "    Answer in the agent window.")
 		} else if (now - last > 600) {
-			print ""
-			print c("33", "  No update for " hms(now - last) ". Check the agent window.")
+			tail[++t] = ""
+			tail[++t] = c("33", "  No update for " hms(now - last) ". Check the agent window.")
 		}
+		nr = r > 6 ? 6 : r
+		items(0)
+		# Too tall for the screen: hide finished items, then shorten "recent", then cut the list.
+		if (rows > 0 && lines + 2 + nr + t > rows) { lines = head; items(1) }
+		if (rows > 0 && lines + 2 + nr + t > rows) nr = rows - lines - 2 - t
+		if (nr < 1) nr = r ? 1 : 0
+		if (rows > 0 && lines + 2 + nr + t > rows) {
+			keep = rows - 2 - nr - t - 1
+			if (keep < head) keep = head
+			lines = keep
+			emit(c("2", "   … more items than fit the screen"))
+		}
+		emit("")
+		emit(c("2", "recent"))
+		for (i = r - nr + 1; i <= r; i++) emit(c("2", "  " cut(recent[i], cols - 2)))
+		for (i = 1; i <= t; i++) emit(tail[i])
+		for (i = 1; i <= lines && (rows <= 0 || i <= rows); i++) print out[i]
 	}' "$log"
 }
 
 if $once; then
-	render
+	render "${LINES:-0}"
 	exit
 fi
 trap 'tput cnorm 2>/dev/null; exit' INT TERM
 tput civis 2>/dev/null || true
 while :; do
-	frame=$(render)
+	rows=$(tput lines 2>/dev/null || echo 24)
+	# Each line clears its own tail, so a shorter line leaves no old text behind. A frame of at
+	# most $rows lines with no final newline never scrolls the screen.
+	frame=$(render "$rows" | sed $'s/$/\033[K/')
 	tput cup 0 0 2>/dev/null || printf '\033[H'
-	printf '%s\n' "$frame"
+	printf '%s' "$frame"
 	tput ed 2>/dev/null || printf '\033[J'
 	sleep 2
 done

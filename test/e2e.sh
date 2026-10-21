@@ -177,9 +177,15 @@ ssh -o ConnectTimeout=5 kyq-core true 2>/dev/null && fail "kyops can still log i
 docker exec "$name" id -nG kyops | grep -qw docker && fail "kyops still in docker group"
 docker exec "$name" test -d /srv/ky/test || fail "revoke touched /srv/ky"
 ok "revoke removes access and leaves data"
+out=$(kyqs hosts)
+grep -qF "kyq-core: access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host core $ip" <<<"$out" ||
+	fail "hosts does not say kyq-core was revoked: $out"
+ok "hosts names a revoked server and how to restore it"
 
 kyqs add-host core "$ip" "$port" admin >/dev/null 2>&1 || fail "add-host after revoke"
 [ "$(ssh kyq-core id -un)" = kyops ] || fail "access not restored after revoke"
+out=$(kyqs hosts)
+grep -q '✔ kyq-core' <<<"$out" || fail "hosts still reports kyq-core as revoked: $out"
 ok "add-host restores access after revoke"
 
 echo "e2e: all passed"

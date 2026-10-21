@@ -10,6 +10,7 @@ KEY=$SSHD/id_ed25519
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai
 RUNS=$STATE/runs
 LOCAL=$STATE/local-host # present when this computer is an install target
+REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
 DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
 AGENTS=(claude codex gemini opencode)
 
@@ -123,10 +124,12 @@ target_problem() { # <target>: why the agent cannot use it, or nothing
 	if [ "$1" = local ]; then
 		docker_problem
 		[ -w "$DATA" ] || echo "$DATA is missing or not writable by you; run kyqs-ai add-local"
+	elif [ -f "$REVOKED/$1" ]; then
+		echo "access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host ${1#kyq-} $(ssh -G "$1" | awk '$1 == "hostname" {print $2}')"
 	elif ! ssh-keygen -F "$1" -f "$SSHD/known_hosts" >/dev/null 2>&1; then
 		echo "host key not pinned; finish setup with kyqs-ai add-host ${1#kyq-} <address>"
 	elif ! ssh -o ConnectTimeout=8 "$1" true </dev/null 2>/dev/null; then
-		echo "kyops cannot log in (server down, or key not loaded in ssh-agent?)"
+		echo "kyops cannot log in (server down, key not loaded in ssh-agent, or access revoked at the server?)"
 	elif ! ssh "$1" 'docker info >/dev/null 2>&1' </dev/null; then
 		echo "kyops cannot use Docker there"
 	elif ! ssh "$1" 'test -w /srv/ky' </dev/null; then
@@ -231,6 +234,7 @@ add_host() {
 	say "3/3  Testing the agent's login."
 	ssh "$alias" 'printf "%s, docker %s\n" "$(id -un)" "$(docker version --format "{{.Server.Version}}")"' </dev/null ||
 		die "kyops cannot log in or reach Docker on $addr"
+	rm -f "$REVOKED/$alias"
 	say "ready: ssh $alias"
 }
 
@@ -348,8 +352,16 @@ pick_agent() {
 pick_mode() {
 	case $1 in
 	claude | codex)
-		say "Hands-off mode pre-approves ssh, git and the run's own helper scripts so the agent" >&2
-		say "only stops when it truly needs you. It still asks before anything destructive." >&2
+		if [ "$1" = claude ]; then
+			say "Hands-off mode pre-approves, for any host and any arguments: ssh, scp, curl, dig," >&2
+			say "getent, git clone/-C/ls-remote and the run's helper scripts (./bin/on runs any command" >&2
+			say "on a target), plus reading, editing and writing any file on this computer." >&2
+		else
+			say "Hands-off mode runs Codex with -a never: every command runs without asking, inside its" >&2
+			say "sandbox (writes only in the run folder, and $DATA if this computer is a target; network on)." >&2
+		fi
+		say "The prompt tells the agent to ask before anything destructive; nothing enforces that." >&2
+		say "Details: README.md, \"Hands-off mode\". Otherwise it asks before each command." >&2
 		if confirm "Use hands-off mode?"; then printf yes; else printf no; fi
 		;;
 	*) printf no ;;
@@ -363,7 +375,8 @@ start() {
 	if [ ! -f "$LOCAL" ] && confirm "Install on this computer?"; then
 		(add_local) || say "  this computer not added; fix the problem above and try again"
 	fi
-	say "Remote servers are reached over SSH as kyops: no sudo, no password, Docker access only."
+	say "Remote servers are reached over SSH as kyops: no sudo, no password, but in the docker group,"
+	say "which is root-equivalent on that server. Remove it when done with kyqs-ai revoke <name>."
 	while confirm "Add a remote server?"; do
 		local n a p u
 		read -r -p "  short name (e.g. core, nas): " n
@@ -424,7 +437,10 @@ revoke() {
 	grep -qx "Host $alias" "$CONF" 2>/dev/null || die "unknown server $alias"
 	remote_root "$(ssh -G "$alias" | awk '$1 == "hostname" {print $2}')" "$(ssh -G "$alias" | awk '$1 == "port" {print $2}')" \
 		"$admin" "$ROOT/bin/revoke-host.sh"
+	mkdir -p "$REVOKED"
+	: >"$REVOKED/$alias"
 	say "The pinned host entry stays in $CONF; delete its block there if the server is gone for good."
+	say "To give the agent access again: kyqs-ai add-host $1 <address>"
 }
 
 cmd=${1:-start}
