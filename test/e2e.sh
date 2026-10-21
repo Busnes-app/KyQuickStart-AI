@@ -184,7 +184,8 @@ ok "hosts names a revoked server and how to restore it"
 
 kyqs add-host core "$ip" "$port" admin >/dev/null 2>&1 || fail "add-host after revoke"
 [ "$(ssh kyq-core id -un)" = kyops ] || fail "access not restored after revoke"
-kyqs hosts | grep -q '✔ kyq-core' || fail "hosts still reports kyq-core as revoked"
+out=$(kyqs hosts)
+grep -q '✔ kyq-core' <<<"$out" || fail "hosts still reports kyq-core as revoked: $out"
 ok "add-host restores access after revoke"
 
 echo "e2e: all passed"
