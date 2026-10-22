@@ -131,6 +131,7 @@ cat >"$work/bin/claude" <<'EOF2'
 #!/bin/sh
 [ -f PROMPT.md ] && [ -x bin/progress ] || exit 3
 printf '%s\n' "$*" >kickoff.txt
+ssh-add -l >agentkeys.txt 2>&1 || true
 ./bin/progress install Stub ok "stub agent ran"
 printf 'Suite\tsecret\tAdmin password\tkyq-core:/srv/ky/test/secret\n' >handover.tsv
 EOF2
@@ -160,7 +161,12 @@ cmp -s "$work/kyquickstart" "$run/bin/kyquickstart" || fail "run has no copy of 
 [ -d "$run/kyq" ] || fail "no kyquickstart state folder"
 grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
 grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"
-ok "the run gets kyquickstart, its state folder and each target's address, pinned key or kubeconfig path"
+grep -qF "\"Read(/$kc)\"" "$run/.claude/settings.json" || fail "kubeconfig not denied to Read: $(cat "$run/.claude/settings.json")"
+agentfp=$(ssh-keygen -lf "$HOME/.ssh/kyquickstart-ai/id_ed25519.pub" | awk '{print $2}')
+if [ "$(wc -l <"$run/agentkeys.txt")" -ne 1 ] || ! grep -qF "$agentfp" "$run/agentkeys.txt"; then
+	fail "the run's ssh-agent should hold the agent key alone: $(cat "$run/agentkeys.txt")"
+fi
+ok "the run gets kyquickstart, its state folder, its own one-key ssh-agent, a denied kubeconfig and each target's facts"
 kyqs remove-cluster lab >/dev/null
 kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
 [ -f "$kc" ] || fail "remove-cluster touched the kubeconfig"

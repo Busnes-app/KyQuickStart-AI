@@ -69,8 +69,8 @@ namespaces labelled `ky.managed-by=kyquickstart`, `/srv/ky/kyquickstart`, `kyq-*
 Edit only `./kyq/stack.yaml`; leave the rest of `./kyq/` to the tool. A refusal is a finding,
 never a cue to do the step by hand. These flags change ownership or data and each needs the
 user's explicit approval, naming what it affects: `--take-over-target`, `--adopt-edge-hosts`,
-`--acknowledge-no-backup`, `restore --replace`, and the commands `uninstall`, `unmanage`,
-`handoff`. **Never open a kubeconfig** (it holds cluster credentials); pass its path only.
+`--acknowledge-no-backup`, `restore --replace`, `restore --yes`, and the commands `uninstall`,
+`unmanage`, `handoff`. **Never open a kubeconfig** (it holds cluster credentials); pass its path only.
 If `bin/kyquickstart` is missing, tell the user that catalog installs, Kubernetes targets and
 lifecycle commands need it, and continue only with README installs on Docker.
 
@@ -306,8 +306,8 @@ you need for non-destructive work.
 
 ### Catalog products: through kyquickstart
 
-Clone `Busnes-app/KyQuickStart` into `src/` at the commit `./bin/kyquickstart version` names
-(`master` for a source build) and read `docs/guided-setup.md` and `docs/edge.md` there: they
+Clone `Busnes-app/KyQuickStart` into `src/` at the tag `v<version>` that `./bin/kyquickstart
+version` prints (`master` when it prints `dev`) and read `docs/guided-setup.md` and `docs/edge.md` there: they
 are the schema and the product notes. Then:
 
 1. Write `kyq/stack.yaml` by hand (`plan` needs a terminal you do not have): one `targets`
@@ -334,14 +334,14 @@ them. Fix `stack.yaml` or the target and rerun.
 
 ### Operating installed apps
 
-Every command takes `--state ./kyq`, refuses an app it does not manage and runs under the
-target's lock. Report each with `bin/progress`.
+Every command takes `--state ./kyq` and refuses an app it does not manage; all but `status`
+and `logs` run under the target's lock. Report each with `bin/progress`.
 
 | Need | Command |
 |---|---|
 | What is installed and running | `status` (`--json` for detail) |
-| Logs (pipe through `./bin/redact`; products may log secrets) | `logs APP [--tail N]` |
-| Stop / start (Kubernetes: suspend / resume) | `stop APP`, `start APP`; while stopped, `apply` and `upgrade` refuse with `app_stopped` |
+| Logs (pipe through `./bin/redact`: kyquickstart masks only the catalog's generated secrets) | `logs APP [--tail N]` |
+| Stop / start (Kubernetes: suspend / resume) | `stop APP`, `start APP`; while stopped, `apply`, `upgrade`, `restart`, `backup` and `handoff` refuse with `app_stopped` |
 | Restart | `restart APP` |
 | Change configuration | edit `kyq/stack.yaml`, `review`, then `apply` |
 | Upgrade | `upgrade [APP...]`; a version change needs a backup or the user's approved `--acknowledge-no-backup` |

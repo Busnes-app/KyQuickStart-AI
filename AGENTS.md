@@ -40,8 +40,9 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is
   refused. The fingerprint comes from the server over the admin's own login or from the user.
   `targets.tsv` hands that fingerprint to kyquickstart's `--trust-host-key`; kyquickstart pins
-  it in its own state. kyquickstart authenticates only through ssh-agent, so the launcher adds
-  the key to a running agent.
+  it in its own state. kyquickstart authenticates only through ssh-agent, so each run gets its
+  own agent (short socket under `/tmp`) holding this key alone, stopped on exit. Claude
+  hands-off settings deny `Read` on every registered kubeconfig.
 - Catalog products on `kyq-*` and `kube-*` targets go through `./bin/kyquickstart --state
   ./kyq` only; the agent writes only `kyq/stack.yaml` and never bypasses a refusal by hand.
   `KYQS_KYQUICKSTART` overrides the binary (empty: none, README installs only).

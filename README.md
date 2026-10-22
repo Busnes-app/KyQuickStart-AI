@@ -95,6 +95,9 @@ Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH
    `~/.ssh/config` (it asks first), so `ssh kyq-<name>` works for you and the agent.
 5. Tests the agent's login and Docker access.
 
+Each run starts its own ssh-agent holding only this key, for `kyquickstart`, and stops it
+when the agent exits; your other keys never reach the run.
+
 It is safe to repeat. If any step fails, the server is not registered, and the guided start
 skips (and names) any target that is not ready. `./kyqs-ai hosts` shows what is wrong with
 each one. An address that is this computer is refused; use `add-local` for that. To do step 2 by hand at the server console instead:
@@ -116,8 +119,8 @@ sh prepare-host.sh <the base64 line>
 ```
 
 The kubeconfig must be readable only by you (mode 0600). The agent passes its path to
-`kyquickstart`, which talks to the cluster; the prompt forbids the agent to open the file,
-which is an instruction, not a barrier. Give it a kubeconfig for a dedicated ServiceAccount,
+`kyquickstart`, which talks to the cluster. Claude Code's hands-off settings deny reading the
+file; for other agents the prompt's ban is an instruction, not a barrier. Give it a kubeconfig for a dedicated ServiceAccount,
 not your cluster-admin one, with the permissions `kyquickstart preflight` checks (it names any
 that are missing; the list is KyQuickStart's `internal/kube/preflight.go`), plus `get` on
 `pods/log` for `logs`.

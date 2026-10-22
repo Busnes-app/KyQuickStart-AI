@@ -89,16 +89,10 @@ EOF
 }
 
 key_loaded() {
+	ssh-keygen -y -P '' -f "$KEY" >/dev/null 2>&1 && return # no passphrase
 	local fp
 	fp=$(ssh-keygen -lf "$KEY.pub" | awk '{print $2}')
 	ssh-add -l 2>/dev/null | grep -qF "$fp" && return
-	if ssh-keygen -y -P '' -f "$KEY" >/dev/null 2>&1; then # no passphrase: ssh reads the file itself
-		[ -n "$KYQ_BIN" ] || return 0
-		# kyquickstart signs in only through ssh-agent
-		[ -n "${SSH_AUTH_SOCK:-}" ] && ssh-add -t 12h "$KEY" 2>/dev/null && return
-		say "kyquickstart reaches servers only through ssh-agent, and none is running; start one (eval \$(ssh-agent))."
-		return 0
-	fi
 	[ -n "${SSH_AUTH_SOCK:-}" ] || die "the key has a passphrase but no ssh-agent is running; start one (eval \$(ssh-agent)) and re-run"
 	say "Loading the KyQuickStart AI key into ssh-agent for 12 hours."
 	ssh-add -t 12h "$KEY"
@@ -336,13 +330,30 @@ latest_run() {
 	printf '%s' "${last%/}"
 }
 
+# kyquickstart signs in only through ssh-agent and offers every key an agent holds. The run
+# gets its own agent with the KyQuickStart AI key alone: the user's other keys neither reach
+# the run nor use up a server's MaxAuthTries.
+run_agent() { # <run>
+	if [ -z "$KYQ_BIN" ] || ! grep -q '^kyq-' "$1/hosts.txt"; then return; fi
+	# A short private socket path: Unix sockets cap paths near 104 bytes, and ~/.ssh/agent/ can exceed it.
+	KYQS_AGENT_DIR=$(mktemp -d /tmp/kyqs-agent.XXXXXX)
+	eval "$(ssh-agent -s -a "$KYQS_AGENT_DIR/s")" >/dev/null
+	trap 'kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$KYQS_AGENT_DIR"' EXIT
+	ssh-add -q -t 12h "$KEY" || say "kyquickstart cannot reach the servers: the key was not added to the run's ssh-agent"
+}
+
 launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
-	local agent=$1 hands=$2 run=$3 kick=$4
+	local agent=$1 hands=$2 run=$3 kick=$4 t deny=''
+	run_agent "$run"
 	case $agent in
 	claude)
 		if [ "$hands" = yes ]; then
+			# Kubeconfig paths are validated to [A-Za-z0-9._/-], so they need no JSON escaping.
+			for t in $(grep '^kube-' "$run/hosts.txt" || true); do
+				deny="$deny${deny:+, }\"Read(/$(cat "$CLUSTERS/$t"))\""
+			done
 			mkdir -p "$run/.claude"
-			cat >"$run/.claude/settings.json" <<'EOF'
+			cat >"$run/.claude/settings.json" <<EOF
 {
   "permissions": {
     "allow": [
@@ -351,7 +362,8 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
       "Bash(./bin/on:*)", "Bash(./bin/progress:*)", "Bash(./bin/redact:*)", "Bash(./bin/handover:*)",
       "Bash(./bin/kyquickstart:*)",
       "Read", "Edit", "Write"
-    ]
+    ],
+    "deny": [$deny]
   }
 }
 EOF
