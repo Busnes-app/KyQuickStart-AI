@@ -1,29 +1,43 @@
 # KyQuickStart AI
 
-Install the Ky suite with the AI coding agent you already use. `kyqs-ai` connects your
-servers over SSH, starts the agent with an installation prompt, shows a live status board
-while it works, and gives you a printable sheet of URLs, logins and passwords at the end.
+Install and run the Ky suite with the AI coding agent you already use. This is the primary
+way to install the suite. `kyqs-ai` connects your servers over SSH and your Kubernetes
+clusters, starts the agent with an installation prompt, shows a live status board while it
+works, and gives you a printable sheet of URLs, logins and passwords at the end.
 
-The prompt directs the agent to install the selected Ky apps, create separate
-**administrator** and **everyday** users, configure selected identity/backup/monitoring
-integrations, and report the outcome. Completion depends on product readiness, supplied
-services and observed checks; launching an agent does not guarantee these steps succeeded.
-It follows each product’s README and records missing or incorrect instructions.
+The agent plans with you, talks you through choices and diagnoses problems.
+[KyQuickStart](https://github.com/Busnes-app/KyQuickStart)'s `kyquickstart` binary does the
+work for every catalog product: it validates the plan, deploys on Docker (Compose over SSH) or
+Kubernetes, configures each product through its own setup command, keeps secrets on the
+targets, refuses anything it does not own and verifies the result. The agent also uses it
+afterwards to show status and logs, stop, start, restart, reconfigure, upgrade, remove
+(keeping data), back up and restore. Third-party apps, and installs on this computer, follow
+each product's README.
 
-**Status:** first test. Expect the agent to hit README gaps; that is what the report is for.
-No third-party app has completed suite admission yet, so the agent labels each one a test
-install. For the deterministic installer, see [KyQuickStart](https://github.com/Busnes-app/KyQuickStart).
+The agent creates separate **administrator** and **everyday** users, configures selected
+identity/backup/monitoring integrations, and reports the outcome. Completion depends on
+product readiness, supplied services and observed checks; launching an agent does not
+guarantee these steps succeeded.
+
+**Status:** early. No third-party app has completed suite admission yet, so the agent labels
+each one a test install. Each run's `feedback.md` records README and kyquickstart gaps.
 
 ## What you need
 
-- **Your computer:** Linux or macOS with `bash`, `ssh`, `git`, and one supported agent CLI:
+- **Your computer:** Linux or macOS with `bash`, `ssh`, `git`, the `kyquickstart` binary on
+  your `PATH` (or `KYQS_KYQUICKSTART=/path/to/kyquickstart`; build it from
+  [KyQuickStart](https://github.com/Busnes-app/KyQuickStart) with `make build`; KyYard needs a
+  release binary), an SSH agent for the servers, and one supported agent CLI:
   [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`),
   [Codex CLI](https://github.com/openai/codex) (`codex`),
   [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) or
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; it puts the dashboard beside the agent.
-- **Where the apps run:** this computer, servers, or both. Each needs Linux with Docker Engine
-  and the compose plugin already installed (Podman is not supported). Servers need a login that can use `sudo` (once,
-  below). x86-64 is what the suite targets.
+- **Where the apps run:** this computer, servers, Kubernetes clusters, or a mix. Servers and
+  this computer need Linux with Docker Engine and the compose plugin already installed (Podman
+  is not supported); servers need a login that can use `sudo` (once, below). Clusters need a
+  kubeconfig and a persistent StorageClass. Nothing installs Docker or Kubernetes for you.
+  x86-64 is what the suite targets. Which product runs where:
+  [KyQuickStart docs/redirect.md](https://github.com/Busnes-app/KyQuickStart/blob/master/docs/redirect.md).
 - **A domain you control.** The apps need HTTPS hostnames (passkeys and sign-in require it).
   LAN-only is fine; public DNS records may point at private addresses.
 
@@ -48,7 +62,8 @@ The launcher walks you through:
 4. **Handover.** When you exit the agent, the launcher builds the handover sheet and offers to
    show and print it.
 
-Continue an interrupted run with `./kyqs-ai resume`. See all commands with `./kyqs-ai help`.
+Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of
+`kyquickstart`, so a resume uses the same version. See all commands with `./kyqs-ai help`.
 
 ## Installing on this computer
 
@@ -80,6 +95,9 @@ Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH
    `~/.ssh/config` (it asks first), so `ssh kyq-<name>` works for you and the agent.
 5. Tests the agent's login and Docker access.
 
+Each run starts its own ssh-agent holding only this key, for `kyquickstart`, and stops it
+when the agent exits; your other keys never reach the run.
+
 It is safe to repeat. If any step fails, the server is not registered, and the guided start
 skips (and names) any target that is not ready. `./kyqs-ai hosts` shows what is wrong with
 each one. An address that is this computer is refused; use `add-local` for that. To do step 2 by hand at the server console instead:
@@ -92,6 +110,22 @@ sh prepare-host.sh <the base64 line>
 # back on your computer; it asks you to compare the fingerprint with KYQ-HOSTKEY
 ./kyqs-ai add-host --prepared <name> <address> [port]
 ```
+
+## Kubernetes clusters
+
+```sh
+./kyqs-ai add-cluster <name> <kubeconfig>     # target kube-<name>
+./kyqs-ai remove-cluster <name>               # stop offering it; the cluster is untouched
+```
+
+The kubeconfig must be readable only by you (mode 0600). The agent passes its path to
+`kyquickstart`, which talks to the cluster. Claude Code's hands-off settings deny reading the
+file; for other agents the prompt's ban is an instruction, not a barrier. Give it a kubeconfig for a dedicated ServiceAccount,
+not your cluster-admin one, with the permissions `kyquickstart preflight` checks (it names any
+that are missing; the list is KyQuickStart's `internal/kube/preflight.go`), plus `get` on
+`pods/log` for `logs`.
+Each app gets its own `kyq-<app>` namespace; kyquickstart never adopts an object it did not
+label. To remove access, delete or revoke that ServiceAccount's token in the cluster.
 
 ## Letting the agent work without admin rights
 
@@ -121,14 +155,20 @@ the install uses, so the agent stops when it needs you, not for every `ssh`:
 
 | Agent | Hands-off pre-approves | Supervised |
 |---|---|---|
-| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact` or `./bin/handover`, plus the Read, Edit and Write tools with no path limit | normal prompts |
+| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover` or `./bin/kyquickstart`, plus the Read, Edit and Write tools with no path limit | normal prompts |
 | Codex | Runs `codex -s workspace-write -c sandbox_workspace_write.network_access=true -a never`: every command runs without asking, writes on this computer stay in the run folder (and `/srv/ky` when this computer is a target), network is on | same sandbox, `-a on-request` |
 | Gemini CLI, opencode | not offered | normal prompts |
+
+Claude Code applies the run folder's settings only after you accept its "trust this folder"
+dialog, which it shows once when the run starts; decline it and every command asks first.
 
 **These rules are not limited to your `kyq-*` servers.** `ssh`, `scp` and `curl` are approved
 for any host and any arguments, and Codex's sandbox lets every command reach the network.
 `./bin/on` runs whatever command it is given, on a `kyq-*` server or, with `local`, on this
-computer as you. The prompt is what keeps the agent on your targets.
+computer as you. `./bin/kyquickstart` includes `uninstall`, `unmanage`, `restore --replace`
+and ownership take-over flags; kyquickstart itself keeps data on uninstall and refuses what it
+does not own, but asking you first is the prompt's rule. The prompt is what keeps the agent on
+your targets.
 
 In both modes the prompt tells the agent to ask before anything destructive. That is an
 instruction, not an enforcement: a misbehaving agent with Docker access could still read or
@@ -173,13 +213,17 @@ It gives you a command that stores it straight on the server:
 | `feedback.md` | Test report: what worked, what failed, and the README changes each repo needs |
 | `install-guide-draft.md` | The install sequence that worked, written for a newcomer |
 | `state.md` | The plan, decisions and everything created, for resuming and auditing |
+| `kyq/` | kyquickstart's plan (`stack.yaml`) and results; no secrets. Keep it: later runs operate the same installation from it |
+| `targets.tsv` | Each target's address, port, login and pinned host key, or kubeconfig path |
 | `progress.log` | The dashboard's event log |
 
 ## Verification and readiness
 
-The launcher tests check launcher behavior, secret redaction, host-key handling and
-handover mechanics. The end-to-end harness uses disposable SSH infrastructure and a stub
-Docker command/agent; it is **not a full Ky-product install or recovery test**.
+The launcher tests check launcher behavior, secret redaction, host-key handling, cluster
+registration and handover mechanics. The end-to-end harness uses disposable SSH
+infrastructure and a stub Docker command, agent and kyquickstart; it is **not a full
+Ky-product install or recovery test**. Product deployment, ownership, lifecycle and restore
+are tested in KyQuickStart (`make e2e`).
 
 Read each run’s `feedback.md`, `state.md` and handover before using the installation.
 Require separate observed evidence for email send/receive and verification links, real

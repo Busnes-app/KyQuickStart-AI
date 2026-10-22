@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# KyQuickStart AI: connects your servers over SSH, starts the local AI agent you choose with
-# PROMPT.md, shows a live dashboard, and builds the handover sheet when the agent exits.
+# KyQuickStart AI: connects your servers over SSH and your Kubernetes clusters, starts the local
+# AI agent you choose with PROMPT.md and the kyquickstart execution layer, shows a live
+# dashboard, and builds the handover sheet when the agent exits.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
@@ -11,6 +12,8 @@ STATE=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai
 RUNS=$STATE/runs
 LOCAL=$STATE/local-host # present when this computer is an install target
 REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
+CLUSTERS=$STATE/clusters # one file per kube-<name>, holding its kubeconfig's path
+KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || true)} # set but empty: none
 DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
 AGENTS=(claude codex gemini opencode)
 
@@ -35,6 +38,9 @@ usage: kyqs-ai [command]
   add-host [--prepared] <name> <address> [port] [admin-user]
                                  Prepare a server and pin its host key as ssh alias kyq-<name>.
                                  --prepared: you already ran bin/prepare-host.sh at its console
+  add-cluster <name> <kubeconfig>
+                                 Use a Kubernetes cluster as target kube-<name> (needs kyquickstart)
+  remove-cluster <name>          Stop offering kube-<name>; the cluster and its apps are untouched
   hosts                          List install targets and check each one answers
   ssh-key                        Print the agent's public key as one base64 line, for running
                                  bin/prepare-host.sh at a server console yourself
@@ -93,10 +99,14 @@ key_loaded() {
 }
 
 host_aliases() { [ -f "$CONF" ] && awk '$1 == "Host" && $2 != "kyq-*" {print $2}' "$CONF"; }
-targets() { # every install target, one per line: local first, then ssh aliases
+cluster_names() { [ -d "$CLUSTERS" ] && ls "$CLUSTERS"; }
+targets() { # every install target, one per line: local first, then ssh aliases, then clusters
 	[ -f "$LOCAL" ] && echo local
 	host_aliases || true
+	cluster_names || true
 }
+# shellcheck disable=SC2012 # callers pass validated paths; ls -lL is the portable mode read (BSD and GNU)
+private_file() { [ -f "$1" ] && [ "$(ls -lL "$1" | cut -c5-10)" = ------ ]; } # no group/other access
 
 docker_problem() { # why this computer's Docker is unusable for us, or nothing
 	local me
@@ -124,6 +134,14 @@ target_problem() { # <target>: why the agent cannot use it, or nothing
 	if [ "$1" = local ]; then
 		docker_problem
 		[ -w "$DATA" ] || echo "$DATA is missing or not writable by you; run kyqs-ai add-local"
+	elif [[ $1 == kube-* ]]; then
+		local kc
+		kc=$(cat "$CLUSTERS/$1")
+		if [ -z "$KYQ_BIN" ]; then
+			echo "Kubernetes targets need the kyquickstart binary: put it on PATH or set KYQS_KYQUICKSTART"
+		elif ! private_file "$kc"; then
+			echo "kubeconfig $kc is missing or readable by other users (chmod 600 it)"
+		fi
 	elif [ -f "$REVOKED/$1" ]; then
 		echo "access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host ${1#kyq-} $(ssh -G "$1" | awk '$1 == "hostname" {print $2}')"
 	elif ! ssh-keygen -F "$1" -f "$SSHD/known_hosts" >/dev/null 2>&1; then
@@ -238,6 +256,43 @@ add_host() {
 	say "ready: ssh $alias"
 }
 
+add_cluster() {
+	[ $# = 2 ] || die "usage: kyqs-ai add-cluster <name> <kubeconfig>"
+	[[ $1 =~ ^[a-z][a-z0-9-]{0,25}$ ]] || die "name: a lowercase letter, then letters, digits and dashes"
+	[ -n "$KYQ_BIN" ] || die "Kubernetes targets need the kyquickstart binary: put it on PATH or set KYQS_KYQUICKSTART"
+	[ -f "$2" ] || die "$2 is not a file"
+	local kc
+	kc=$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")
+	[[ $kc =~ ^/[A-Za-z0-9._/-]+$ ]] || die "kubeconfig path: letters, digits and . _ / - only"
+	private_file "$kc" || die "$kc is readable by other users; chmod 600 it first"
+	mkdir -p "$CLUSTERS"
+	printf '%s\n' "$kc" >"$CLUSTERS/kube-$1"
+	say "ready: kube-$1. kyquickstart reads $kc; the agent is told never to open it."
+	say "Prefer a kubeconfig for a dedicated ServiceAccount over your cluster-admin one (README)."
+}
+
+remove_cluster() {
+	if [ $# != 1 ] || [ ! -f "$CLUSTERS/kube-$1" ]; then die "usage: kyqs-ai remove-cluster <name> (an added cluster)"; fi
+	rm -f "$CLUSTERS/kube-$1"
+	say "kube-$1 is no longer a target. Its apps and the kubeconfig are untouched; revoke that"
+	say "kubeconfig's credentials in the cluster to remove the access itself."
+}
+
+# One line per ready target for the agent's kyquickstart plan: no secrets, only where and how.
+target_facts() {
+	local t
+	printf 'target\tkind\taddress\tport\tuser\thost_key\tkubeconfig\n'
+	for t; do
+		case $t in
+		local) printf 'local\tlocal\t-\t-\t-\t-\t-\n' ;;
+		kube-*) printf '%s\tkubernetes\t-\t-\t-\t-\t%s\n' "$t" "$(cat "$CLUSTERS/$t")" ;;
+		*) printf '%s\tssh\t%s\t%s\tkyops\t%s\t-\n' "$t" "$(ssh -G "$t" | awk '$1 == "hostname" {print $2}')" \
+			"$(ssh -G "$t" | awk '$1 == "port" {print $2}')" \
+			"$(ssh-keygen -lF "$t" -f "$SSHD/known_hosts" | awk '!/^#/ {print $3; exit}')" ;;
+		esac
+	done
+}
+
 hosts() {
 	local a any='' why
 	for a in $(targets); do
@@ -245,7 +300,8 @@ hosts() {
 		why=$(target_problem "$a")
 		if [ -n "$why" ]; then say "  ✖ $a: $why"; elif [ "$a" = local ]; then say "  ✔ local (this computer)"; else say "  ✔ $a"; fi
 	done
-	[ -n "$any" ] || say "  none yet: kyqs-ai add-local, or kyqs-ai add-host <name> <address> [port] [admin-user]"
+	[ -n "$any" ] || say "  none yet: kyqs-ai add-local, kyqs-ai add-host <name> <address> [port] [admin-user], or kyqs-ai add-cluster <name> <kubeconfig>"
+	[ -n "$KYQ_BIN" ] || say "  kyquickstart not found: only README installs on Docker; set KYQS_KYQUICKSTART or put it on PATH"
 }
 
 # shellcheck disable=SC2029 # the path is validated, then expanded locally on purpose
@@ -274,21 +330,40 @@ latest_run() {
 	printf '%s' "${last%/}"
 }
 
+# kyquickstart signs in only through ssh-agent and offers every key an agent holds. The run
+# gets its own agent with the KyQuickStart AI key alone: the user's other keys neither reach
+# the run nor use up a server's MaxAuthTries.
+run_agent() { # <run>
+	if [ -z "$KYQ_BIN" ] || ! grep -q '^kyq-' "$1/hosts.txt"; then return; fi
+	# A short private socket path: Unix sockets cap paths near 104 bytes, and ~/.ssh/agent/ can exceed it.
+	KYQS_AGENT_DIR=$(mktemp -d /tmp/kyqs-agent.XXXXXX)
+	eval "$(ssh-agent -s -a "$KYQS_AGENT_DIR/s")" >/dev/null
+	trap 'kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$KYQS_AGENT_DIR"' EXIT
+	ssh-add -q -t 12h "$KEY" || say "kyquickstart cannot reach the servers: the key was not added to the run's ssh-agent"
+}
+
 launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
-	local agent=$1 hands=$2 run=$3 kick=$4
+	local agent=$1 hands=$2 run=$3 kick=$4 t deny=''
+	run_agent "$run"
 	case $agent in
 	claude)
 		if [ "$hands" = yes ]; then
+			# Kubeconfig paths are validated to [A-Za-z0-9._/-], so they need no JSON escaping.
+			for t in $(grep '^kube-' "$run/hosts.txt" || true); do
+				deny="$deny${deny:+, }\"Read(/$(cat "$CLUSTERS/$t"))\""
+			done
 			mkdir -p "$run/.claude"
-			cat >"$run/.claude/settings.json" <<'EOF'
+			cat >"$run/.claude/settings.json" <<EOF
 {
   "permissions": {
     "allow": [
       "Bash(ssh:*)", "Bash(scp:*)", "Bash(git clone:*)", "Bash(git -C:*)", "Bash(git ls-remote:*)",
       "Bash(curl:*)", "Bash(dig:*)", "Bash(getent:*)",
       "Bash(./bin/on:*)", "Bash(./bin/progress:*)", "Bash(./bin/redact:*)", "Bash(./bin/handover:*)",
+      "Bash(./bin/kyquickstart:*)",
       "Read", "Edit", "Write"
-    ]
+    ],
+    "deny": [$deny]
   }
 }
 EOF
@@ -377,6 +452,7 @@ start() {
 	fi
 	say "Remote servers are reached over SSH as kyops: no sudo, no password, but in the docker group,"
 	say "which is root-equivalent on that server. Remove it when done with kyqs-ai revoke <name>."
+	say "Kubernetes clusters are added with kyqs-ai add-cluster <name> <kubeconfig> before the start."
 	while confirm "Add a remote server?"; do
 		local n a p u
 		read -r -p "  short name (e.g. core, nas): " n
@@ -405,9 +481,14 @@ start() {
 	mkdir -p "$run/bin"
 	cp "$ROOT/PROMPT.md" "$run/"
 	cp "$ROOT/bin/on" "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$run/bin/"
+	# The run keeps its own copy, so a resume uses the same execution layer.
+	[ -z "$KYQ_BIN" ] || cp "$KYQ_BIN" "$run/bin/kyquickstart"
+	mkdir -p "$run/kyq"
 	printf '%s\n' "${ready[@]}" >"$run/hosts.txt"
-	printf 'agent: %s\nhands-off: %s\nlauncher: %s\nkyquickstart-ai: %s\n' "$agent" "$hands" "$ROOT/kyqs-ai" \
-		"$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)" >"$run/launch.txt"
+	target_facts "${ready[@]}" >"$run/targets.tsv"
+	printf 'agent: %s\nhands-off: %s\nlauncher: %s\nkyquickstart-ai: %s\nkyquickstart: %s\n' "$agent" "$hands" "$ROOT/kyqs-ai" \
+		"$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)" \
+		"$([ -x "$run/bin/kyquickstart" ] && "$run/bin/kyquickstart" version | head -1 || echo none)" >"$run/launch.txt"
 	say "Run folder: $run"
 	dashboard_hint "$run"
 	launch "$agent" "$hands" "$run" "You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."
@@ -449,6 +530,8 @@ case $cmd in
 start) start ;;
 add-local) add_local ;;
 add-host) add_host "$@" ;;
+add-cluster) add_cluster "$@" ;;
+remove-cluster) remove_cluster "$@" ;;
 hosts) hosts ;;
 ssh-key) ssh_setup && base64 <"$KEY.pub" | tr -d '\n' && echo ;;
 put-secret) put_secret "$@" ;;
