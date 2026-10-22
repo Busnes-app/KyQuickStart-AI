@@ -278,7 +278,7 @@ add_cluster() {
 }
 
 remove_cluster() {
-	[ $# = 1 ] && [ -f "$CLUSTERS/kube-$1" ] || die "usage: kyqs-ai remove-cluster <name> (an added cluster)"
+	if [ $# != 1 ] || [ ! -f "$CLUSTERS/kube-$1" ]; then die "usage: kyqs-ai remove-cluster <name> (an added cluster)"; fi
 	rm -f "$CLUSTERS/kube-$1"
 	say "kube-$1 is no longer a target. Its apps and the kubeconfig are untouched; revoke that"
 	say "kubeconfig's credentials in the cluster to remove the access itself."
