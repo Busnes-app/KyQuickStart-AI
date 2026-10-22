@@ -6,14 +6,18 @@ third-party admission) live in the busnes.app workspace `AGENTS.md` and in
 
 ## Purpose
 
-Install the Ky suite by prompting a local AI agent, and use each run to test the product
-READMEs. The deliverables of a run are the installed suite, a handover sheet, `feedback.md`
-(README findings) and `install-guide-draft.md`.
+The primary installation path for the Ky suite (owner decision 2026-10-22): a local AI agent
+plans, converses and diagnoses; `kyquickstart` (Busnes-app/KyQuickStart) executes catalog
+installs and ongoing operations on Docker over SSH and Kubernetes. Third-party apps and the
+`local` target follow product READMEs. The deliverables of a run are the installed suite, its
+`kyq/` plan, a handover sheet, `feedback.md` (README and kyquickstart findings) and
+`install-guide-draft.md`. KyQuickStart's `docs/redirect.md` is the redirect record.
 
 ## Ownership
 
 - `PROMPT.md`: what the agent does and in what order; the feedback report format.
-- `kyqs-ai`: launcher. Targets (`add-local`, `add-host`, `revoke`), `put-secret`, run folders,
+- `kyqs-ai`: launcher. Targets (`add-local`, `add-host`, `add-cluster`, `remove-cluster`,
+  `revoke`), `put-secret`, run folders (`targets.tsv`, a copy of `kyquickstart`, `kyq/`),
   agent launch per CLI, dashboard placement, handover after exit.
 - `bin/prepare-host.sh`, `bin/revoke-host.sh`: the only root-run code; POSIX `sh`.
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
@@ -28,12 +32,19 @@ READMEs. The deliverables of a run are the installed suite, a handover sheet, `f
   `docker` group, owner of `/srv/ky`. Docs must say docker group is root-equivalent.
   `revoke` removes access and never touches apps or `/srv/ky`; it leaves an empty
   `<state>/revoked/kyq-<name>` so `hosts` can say so, and `add-host` removes that file.
-- Install targets are `local` (this computer, no SSH, the agent runs as the user) and
-  `kyq-<name>` servers. The agent reaches every target through `bin/on`, so the prompt and
+- Install targets are `local` (this computer, no SSH, the agent runs as the user),
+  `kyq-<name>` servers and `kube-<name>` clusters (a 0600 kubeconfig path, recorded in
+  `<state>/clusters/`, usable only with kyquickstart; the agent never opens the file). The agent reaches every target through `bin/on`, so the prompt and
   hands-off allow-list are the same for both. Local mode never touches `~/.ssh`; `KYQS_DATA`
   exists only so tests can replace `/srv/ky`.
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is
   refused. The fingerprint comes from the server over the admin's own login or from the user.
+  `targets.tsv` hands that fingerprint to kyquickstart's `--trust-host-key`; kyquickstart pins
+  it in its own state. kyquickstart authenticates only through ssh-agent, so the launcher adds
+  the key to a running agent.
+- Catalog products on `kyq-*` and `kube-*` targets go through `./bin/kyquickstart --state
+  ./kyq` only; the agent writes only `kyq/stack.yaml` and never bypasses a refusal by hand.
+  `KYQS_KYQUICKSTART` overrides the binary (empty: none, README installs only).
 - Commands sent through an admin's login shell are base64 only, so fish/zsh/bash cannot
   reinterpret them.
 - The progress log is six tab-separated fields: epoch, clock, phase, item, state, note.
@@ -54,8 +65,9 @@ READMEs. The deliverables of a run are the installed suite, a handover sheet, `f
 - `shellcheck -x kyqs-ai bin/* test/*.sh`
 - `test/unit.sh`: progress, dashboard, redact, handover.
 - `test/e2e.sh`: needs Docker; disposable sshd container with a stub `docker`: add-host,
-  pinning and tamper refusal, `--prepared`, put-secret, handover, guided start with a stub
-  agent, a local-only start (no SSH), revoke and re-add.
+  pinning and tamper refusal, `--prepared`, add-cluster/remove-cluster with a stub
+  kyquickstart, put-secret, handover, guided start with a stub agent (targets.tsv, kyquickstart
+  copy and allow-list), a local-only start (no SSH), revoke and re-add.
 
 ## Child DOX Index
 

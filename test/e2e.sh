@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end: add-host, host-key pinning, put-secret, handover and revoke against a disposable
-# sshd container. `docker` inside it is a stub, so the test never touches the host's Docker.
+# End-to-end: add-host, host-key pinning, add-cluster, put-secret, handover and revoke against
+# a disposable sshd container. `docker` inside it is a stub, so the test never touches the host's Docker.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -110,6 +110,22 @@ out=$(echo y | kyqs add-host --prepared alt "$ip" "$port" 2>&1) || fail "add-hos
 [ "$(ssh kyq-alt id -un)" = kyops ] || fail "kyq-alt does not log in"
 ok "add-host --prepared pins only after the user confirms the fingerprint"
 
+# Kubernetes targets go through kyquickstart and a private kubeconfig the agent never opens.
+kc=$work/kubeconfig
+printf 'apiVersion: v1\nkind: Config\n' >"$kc"
+chmod 600 "$kc"
+out=$(KYQS_KYQUICKSTART='' kyqs add-cluster lab "$kc" 2>&1) && fail "add-cluster without kyquickstart"
+grep -q 'need the kyquickstart binary' <<<"$out" || fail "wrong refusal: $out"
+printf '#!/bin/sh\necho 0.0.0-stub\n' >"$work/kyquickstart"
+chmod +x "$work/kyquickstart"
+export KYQS_KYQUICKSTART=$work/kyquickstart
+chmod 640 "$kc"
+kyqs add-cluster lab "$kc" >/dev/null 2>&1 && fail "accepted a group-readable kubeconfig"
+chmod 600 "$kc"
+kyqs add-cluster lab "$kc" >/dev/null || fail "add-cluster"
+kyqs hosts | grep -q '✔ kube-lab' || fail "kube-lab not ready: $(kyqs hosts)"
+ok "add-cluster needs kyquickstart and a private kubeconfig"
+
 # The guided start with a stub agent: it reads the prompt, records a secret location, exits.
 cat >"$work/bin/claude" <<'EOF2'
 #!/bin/sh
@@ -134,6 +150,21 @@ grep -q 'Admin password *hunter2-hunter2' "$run/handover.txt" || fail "handover 
 [ "$(stat -c %a "$run")" = 700 ] || fail "run folder not private"
 grep -q 'hunter2' <<<"$out" && fail "launcher printed a secret"
 ok "guided start skips targets that are not ready, runs the agent privately, builds the handover"
+grep -qx kube-lab "$run/hosts.txt" || fail "cluster missing from hosts.txt"
+fp=$(ssh-keygen -lF kyq-core -f "$HOME/.ssh/kyquickstart-ai/known_hosts" | awk '!/^#/ {print $3}')
+grep -qxF "$(printf 'kyq-core\tssh\t%s\t%s\tkyops\t%s\t-' "$ip" "$port" "$fp")" "$run/targets.tsv" ||
+	fail "server facts wrong: $(cat "$run/targets.tsv")"
+grep -qxF "$(printf 'kube-lab\tkubernetes\t-\t-\t-\t-\t%s' "$kc")" "$run/targets.tsv" || fail "cluster facts wrong"
+grep -q kubernetes "$run/kickoff.txt" && fail "kickoff should not carry target details"
+cmp -s "$work/kyquickstart" "$run/bin/kyquickstart" || fail "run has no copy of kyquickstart"
+[ -d "$run/kyq" ] || fail "no kyquickstart state folder"
+grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
+grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"
+ok "the run gets kyquickstart, its state folder and each target's address, pinned key or kubeconfig path"
+kyqs remove-cluster lab >/dev/null
+kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
+[ -f "$kc" ] || fail "remove-cluster touched the kubeconfig"
+ok "remove-cluster forgets the target and leaves the kubeconfig"
 
 # Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.
 (
