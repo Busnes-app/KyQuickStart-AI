@@ -125,9 +125,9 @@ fixed).
 
 Keep the interview short: a dense first message was unreadable in practice. Send a
 **numbered form with your recommended answer already filled in** for each item, one line
-each, and ask the user to reply "ok" or change only the numbers they disagree with. Put the
-app menu (section 4) after the form as a compact table they can edit. Explain an item only
-if they ask.
+each, and ask the user to reply "ok" or change only the numbers they disagree with. Items
+marked `<ask>` have no default: the user must fill them in. Put the app menu (section 4)
+after the form as a compact table they can edit. Explain an item only if they ask.
 
 ```
 1. Domain: <ask>            hostnames <app>.<domain>
@@ -136,15 +136,19 @@ if they ask.
                             (or: existing NPM, you add only your own hosts | your own proxy)
 4. Apps: see table below    KyIdentity required
 5. Placement: you decide    (from preflight; KyRecovery never on the NAS; Docker or Kubernetes per section 4)
-6. People: org <ask>; admin login <name>-admin + email; everyday login <name> + email
+6. People: org <ask>; admin username <ask> + email; everyday username <ask> + email
 7. Recovery ceremony: later in this run (needs a person, a browser and a printer, k-of-n cards)
 8. Mail: Mailpit catcher for this test  (or your SMTP relay; needed for email verification)
 ```
 
 Rules behind the defaults: the admin and everyday identities are always two separate
-accounts (admin never does everyday work; everyday has no admin rights anywhere); a DNS
-token or SMTP password arrives through `put-secret`, never in chat; on an existing proxy you
-touch only the hosts you create.
+accounts (admin never does everyday work; everyday has no admin rights anywhere). The user
+chooses both usernames: never propose one or derive one from the other (no `<name>-admin`),
+because a predictable admin name makes password guessing easier. Each username is 3 to 64
+lowercase letters, digits, `.`, `_` or `-`, starts with a letter or digit, and is not `admin`
+(the products' break-glass account); the two usernames differ, and so do the two emails. If
+an answer breaks a rule, ask again and name the rule. A DNS token or SMTP password arrives
+through `put-secret`, never in chat; on an existing proxy you touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.
 
