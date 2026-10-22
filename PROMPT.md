@@ -180,7 +180,8 @@ kyquickstart its API as an existing edge), or a Cloudflare tunnel or frp in fron
 KyQuickStart's `docs/edge.md` lists what each connection supports. Compatibility per product:
 KyQuickStart `docs/redirect.md`.
 
-Not offered: KyVault (replaced by Vaultwarden), KyForge and KyMark (cancelled).
+Not offered: KyVault, KyForge and KyMark (cancelled); Vaultwarden, Forgejo and BookStack
+(dropped by the owner, 2026-10-22). Do not install them, even as test installs.
 
 ### Third-party apps
 
@@ -194,9 +195,6 @@ pinned by digest, on Docker hosts only.
 
 | App | Purpose | Status | Admin from |
 |---|---|---|---|
-| Vaultwarden | Passwords (the suite's password manager) | Selected | `ADMIN_TOKEN` (hashed; plaintext goes in the handover). SSO: `SSO_ENABLED`, `SSO_ONLY`, `SSO_SIGNUPS_MATCH_EMAIL=false` |
-| Forgejo | Git hosting, issues, CI | Approved | `roles` claim → admin group |
-| BookStack | Wiki | Approved | `roles` claim → Admin role external ID `admin` |
 | Immich | Photos | Approved | `roleClaim` admin/user |
 | LibreChat | AI chat | Approved | `OPENID_ADMIN_ROLE`; keep `OPENID_REUSE_TOKENS` off |
 | Home Assistant | Home automation | Approved (community OIDC add-on; label it) | `roles.admin` |
@@ -253,15 +251,12 @@ section told you the fix.
   and `matrix-init` expects a host binary. kyPulse's directory webhook answered 401.
 
 **Third-party apps (same run; none has a template yet, so you write each compose file):**
-- Pattern that worked for 11 apps: KyIdentity client with admin/user roles (BookStack and
-  Forgejo everyday role `editor`), secret piped into `/srv/ky/<app>/secrets/oidc_client_secret`,
+- Pattern that worked for 11 apps: KyIdentity client with admin/user roles, secret piped into `/srv/ky/<app>/secrets/oidc_client_secret`,
   app on `kypost-net` with its database on a private per-app network, CA bundle via mount,
   `NODE_EXTRA_CA_CERTS` or `REQUESTS_CA_BUNDLE`, mail via Mailpit.
 - KyIdentity's setup bundle accepts only HTTPS redirect URIs and confidential clients (no
   public/PKCE-only client, no back-channel logout field). Immich mobile: use its HTTPS
   override `/api/oauth/mobile-redirect`.
-- Vaultwarden: in a compose `env_file`, write the Argon2 `ADMIN_TOKEN` hash with every `$`
-  doubled, or compose mangles it.
 - LibreChat moved: `ghcr.io/librechat-ai/librechat:<tag>`. `OPENID_REQUIRED_ROLE=admin,user`
   with `OPENID_REQUIRED_ROLE_PARAMETER_PATH=roles` admits both identities.
 - Immich: complete its first-admin registration with a separate local bootstrap account
@@ -273,8 +268,6 @@ section told you the fix.
   `features.include_groups_scope: false`, `claims.groups: roles`.
 - Paperless-ngx: the everyday SSO user gets no document permissions; grant them in its user
   UI (no staff/superuser). Mealie and KyMessage chat reject an unverified email.
-- BookStack role external IDs and Forgejo `admin auth add-oauth --secret` need SQL/CLI; feed
-  secrets by stdin inside the container and record the argv exposure.
 - The CLI `backup-drill` of KyCalendar and KyMessage exits 0 even when it fails; read the
   summary. Their admin-API drill passed.
 
@@ -426,7 +419,7 @@ Record their answers in `feedback.md`.
 Sections: one per app, plus `Suite` (organization, admin and everyday logins), `Servers`
 (each target and what runs there), `Proxy` (NPM admin URL and login if you
 installed it). Include every secret a human might need: identity passwords, break-glass
-admins, NPM admin, Vaultwarden `ADMIN_TOKEN` plaintext, recovery pairing state. Run
+admins, NPM admin, recovery pairing state. Run
 `./bin/handover . >/dev/null` to check it resolves (exit 0); **never open `handover.txt`**.
 The launcher shows it to the user after you exit.
 
@@ -513,7 +506,7 @@ Mark each step that is not in any README today with **(not in README)**.
 4. In chat: the final board, the URL list, the human steps left, the paths of the three
    reports, and these closing instructions for the user:
    - Exit this agent session; the launcher then offers to show and print the handover.
-   - Save the logins in Vaultwarden or another password manager, then `shred -u` the file.
+   - Save the logins in a password manager, then `shred -u` the file.
    - When nothing else needs doing, remove the agent's server access:
      `kyqs-ai revoke <name>` for each server (keeps all apps and data). For `local`
      there is no agent login to remove; `kyqs-ai revoke local` just stops offering it.
