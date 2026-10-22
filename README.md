@@ -134,6 +134,12 @@ In both modes the prompt tells the agent to ask before anything destructive. Tha
 instruction, not an enforcement: a misbehaving agent with Docker access could still read or
 delete anything on that server. Use supervised mode if you want to approve each command.
 
+At the end the agent offers to file the Ky product problems it found as GitHub issues for
+the Busnes.app team, with domains, addresses, names and secrets replaced by placeholders.
+It shows you each issue and files only the ones you approve, using your `gh` login. `gh` is
+not in the Claude Code hands-off list, so it still asks; Codex hands-off runs it unasked,
+so the approval there is the prompt's instruction alone.
+
 ## While it works
 
 The dashboard (`./kyqs-ai dashboard` in a second terminal, or the tmux side pane) shows each

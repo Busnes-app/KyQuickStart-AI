@@ -39,6 +39,8 @@ READMEs. The deliverables of a run are the installed suite, a handover sheet, `f
 - The progress log is six tab-separated fields: epoch, clock, phase, item, state, note.
 - The prompt never claims a third-party app is admitted; product facts in it are leads to
   verify at the release tag, and confirmed ones are README findings.
+- Ky product findings go to `Busnes-app/<repo>` as GitHub issues only with the user's
+  approval of each redacted issue; third-party findings stay in `feedback.md`.
 - Destructive steps need explicit user approval; the prompt states this, the tools do not
   enforce it, and the README says so.
 

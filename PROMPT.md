@@ -396,6 +396,29 @@ Everything unfinished, with the next action.
 Be specific and honest: quote the README line, give the exact error, say "unverified" when
 you did not test something. Do not round up partial success.
 
+### Report Ky product issues to the Busnes.app team
+
+Problems in a Ky product (any `Busnes-app/*` repo, this one included) go to the team as
+GitHub issues. Third-party apps are out of scope. **Publishing is outward-facing: nothing
+is posted without the user's explicit approval, in hands-off mode too.**
+
+1. Draft one issue per problem from its `feedback.md` entry, in a file under `issues/`:
+   title `<App>: <problem>`; body with severity, README quote and
+   `<repo>/<file>:<line> @ <tag>`, what happened, the fix used, proposed README text.
+2. Redact personal info. Replace domains, hostnames, IP and MAC addresses, target names,
+   usernames, emails, real and organization names, home-directory paths and anything
+   secret with placeholders (`<domain>`, `<server>`, `<user>`, `<email>`). `bin/redact`
+   masks only secrets, so check every line by hand.
+3. Ask the user: show each redacted title, body and target repo. File only the ones they
+   approve, as they approve them.
+4. Check for a duplicate first:
+   `gh issue list -R Busnes-app/<repo> --state all --search '<keywords>'`. If one exists,
+   offer a comment on it instead (same approval).
+5. File with `gh issue create -R Busnes-app/<repo> --title '<title>' --body-file issues/<file>`.
+   If `gh` is missing or not logged in, give the user the redacted text and
+   `https://github.com/Busnes-app/<repo>/issues/new`; never log in for them.
+6. Add the issue URL, or "declined", to the entry in `feedback.md`.
+
 ## 10. Install guide draft (`install-guide-draft.md`)
 
 At the end, write the sequence that actually worked, as a guide a newcomer could follow
@@ -408,11 +431,12 @@ Mark each step that is not in any README today with **(not in README)**.
 1. `./bin/progress handover done ok`.
 2. Make sure `state.md`, `feedback.md`, `install-guide-draft.md` and `handover.tsv` are
    complete and the run folder holds nothing secret apart from what `bin/handover` will write.
-3. In chat: the final board, the URL list, the human steps left, the paths of the three
+3. Offer the Ky product issues (section 9) if you have not yet.
+4. In chat: the final board, the URL list, the human steps left, the paths of the three
    reports, and these closing instructions for the user:
    - Exit this agent session; the launcher then offers to show and print the handover.
    - Save the logins in Vaultwarden or another password manager, then `shred -u` the file.
    - When nothing else needs doing, remove the agent's server access:
      `kyqs-ai revoke <name>` for each server (keeps all apps and data). For `local`
      there is no agent login to remove; `kyqs-ai revoke local` just stops offering it.
-   - Share `feedback.md` with the Ky maintainers.
+   - `feedback.md` holds this site's details; redact it before sharing it anywhere.
