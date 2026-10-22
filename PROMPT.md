@@ -130,8 +130,9 @@ marked `<ask>` have no default: the user must fill them in. Put the app menu (se
 after the form as a compact table they can edit. Explain an item only if they ask.
 
 ```
-1. Domain: <ask>            hostnames <app>.<domain>
-2. Exposure: LAN only       (public DNS may point at private IPs)
+1. Domain: <ask>            hostnames <app>.<domain>; internal ones <app>.lan.<domain> once item 2 is per app
+2. Exposure: LAN only       (or per app: internal = LAN only, external = through a Cloudflare tunnel or frp;
+                            see the Exposure column of the app table)
 3. Proxy + certs: new Nginx Proxy Manager on <target>, DNS-01 certificates
                             (or: existing NPM, you add only your own hosts | your own proxy)
 4. Apps: see table below    KyIdentity required
@@ -147,8 +148,18 @@ chooses both usernames: never propose one or derive one from the other (no `<nam
 because a predictable admin name makes password guessing easier. Each username is 3 to 64
 lowercase letters, digits, `.`, `_` or `-`, starts with a letter or digit, and is not `admin`
 (the products' break-glass account); the two usernames differ, and so do the two emails. If
-an answer breaks a rule, ask again and name the rule. A DNS token or SMTP password arrives
-through `put-secret`, never in chat; on an existing proxy you touch only the hosts you create.
+an answer breaks a rule, ask again and name the rule.
+
+Exposure: with "LAN only" every app is internal and one domain is enough. Per app, each app
+is internal or external, never both (an app has one hostname). KyRecovery, kyPulse, KyYard and
+KyDNS are always internal: show them so and refuse a change. Default the others to internal;
+the user marks what goes external. If any app that signs in through KyIdentity is external,
+KyIdentity is external too: say so in the form. Internal names go under the internal domain
+and stay out of public DNS; external names go under the domain and outside the internal one.
+With `lan_dns`, KyDNS's private zone must contain both domains.
+
+A DNS token or SMTP password arrives through `put-secret`, never in chat; on an existing proxy
+you touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.
 
@@ -165,18 +176,18 @@ Every Ky product below is in the kyquickstart catalog. **Placement** is what the
 supports; explain any other combination to the user as unsupported before the plan, never
 work around it.
 
-| Product | Repo | Purpose | Default host | Placement | Notes |
-|---|---|---|---|---|---|
-| KyIdentity | KyIdentity-server | Sign-in (OIDC), users, MFA/passkeys, app access, directory sync | `id.` | Docker, Kubernetes | **Required**, install first. Issuer must be HTTPS |
-| KyRecovery | KyRecovery-server | Blind store for sealed backups of every product | `recovery.` | Docker, Kubernetes | Recommended. Needs the human ceremony. Not on the NAS |
-| kyPulse | KyPulse-server | Health checks, alerts, logs | `pulse.` | Docker, Kubernetes | Recommended |
-| KyYard | KyYard-server | Docker/Kubernetes inventory and operations | `yard.` | Docker, Kubernetes | Needs a release kyquickstart (runner image pin); mounts the Docker socket on Docker (root-equivalent); say so |
-| KyNotes | KyNotes-server | End-to-end encrypted notes | `notes.` | Docker, Kubernetes | |
-| KyPost | KyPost-Server | Mail client, contacts (CardDAV), classification | `mail.` | Docker | Uses an existing mail account; local AI model needs ~8 GB RAM |
-| KyDrive | kydrive-server | Files, shared workspaces, office documents | `drive.`, `office.` | Docker | Euro-Office is not in the catalog: README path, ~4 GB RAM |
-| KyCalendar | KyCalendar | Calendars, CalDAV, tasks | `calendar.` | Docker, Kubernetes | |
-| KyMessage | KyMessage-Server | Team chat on Matrix (Synapse, MAS, Element) | `chat.` + Matrix hosts | Docker | Heavy; call media bypasses the edge on `media_address` |
-| KyDNS | KyDNS-server | LAN DNS and service directory | LAN IP | Docker | Optional. Refuses the edge on a Docker host that hides client addresses |
+| Product | Repo | Purpose | Default host | Placement | Exposure | Notes |
+|---|---|---|---|---|---|---|
+| KyIdentity | KyIdentity-server | Sign-in (OIDC), users, MFA/passkeys, app access, directory sync | `id.` | Docker, Kubernetes | Either; external if any app is | **Required**, install first. Issuer must be HTTPS |
+| KyRecovery | KyRecovery-server | Blind store for sealed backups of every product | `recovery.` | Docker, Kubernetes | **Internal only** | Recommended. Needs the human ceremony. Not on the NAS |
+| kyPulse | KyPulse-server | Health checks, alerts, logs | `pulse.` | Docker, Kubernetes | **Internal only** | Recommended |
+| KyYard | KyYard-server | Docker/Kubernetes inventory and operations | `yard.` | Docker, Kubernetes | **Internal only** | Needs a release kyquickstart (runner image pin); mounts the Docker socket on Docker (root-equivalent); say so |
+| KyNotes | KyNotes-server | End-to-end encrypted notes | `notes.` | Docker, Kubernetes | Either | |
+| KyPost | KyPost-Server | Mail client, contacts (CardDAV), classification | `mail.` | Docker | Either | Uses an existing mail account; local AI model needs ~8 GB RAM |
+| KyDrive | kydrive-server | Files, shared workspaces, office documents | `drive.`, `office.` | Docker | Either | Euro-Office is not in the catalog: README path, ~4 GB RAM |
+| KyCalendar | KyCalendar | Calendars, CalDAV, tasks | `calendar.` | Docker, Kubernetes | Either | |
+| KyMessage | KyMessage-Server | Team chat on Matrix (Synapse, MAS, Element) | `chat.` + Matrix hosts | Docker | Either | Heavy; call media bypasses the edge on `media_address` |
+| KyDNS | KyDNS-server | LAN DNS and service directory | LAN IP | Docker | **Internal only** | Optional. Refuses the edge on a Docker host that hides client addresses |
 
 The edge is Nginx Proxy Manager. On Kubernetes kyquickstart installs it (catalog `npm`); a
 Docker-only site needs an existing NPM (you may install stock NPM by its README, then hand
@@ -311,6 +322,10 @@ are the schema and the product notes. Then:
    entry per `targets.tsv` line you use, named as there. A `ssh` target takes `host`, `port`,
    `user: kyops`, `root: /srv/ky/kyquickstart`; a `kubernetes` target takes `kubeconfig` (the
    path) and optionally `storage_class`. Add `apps`, `edges` and `integrations` from the docs.
+   With per-app exposure, the edge is `cloudflare` or `frp` with `allow_cidrs` for its internal
+   routes, each internal route has `exposure: internal`, and `domains: {internal, external}`
+   records the two domains (`docs/edge.md`, "Internal and external routes"). `review` refuses
+   an internal-only app on an external route.
 2. `./bin/kyquickstart review --state ./kyq` (offline validation), then
    `./bin/kyquickstart preflight --state ./kyq --trust-host-key kyq-<name>=<host_key from targets.tsv>`
    (one flag per server; only on first contact: kyquickstart pins it, and a changed key is
