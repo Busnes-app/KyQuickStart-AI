@@ -159,6 +159,9 @@ the install uses, so the agent stops when it needs you, not for every `ssh`:
 | Codex | Runs `codex -s workspace-write -c sandbox_workspace_write.network_access=true -a never`: every command runs without asking, writes on this computer stay in the run folder (and `/srv/ky` when this computer is a target), network is on | same sandbox, `-a on-request` |
 | Gemini CLI, opencode | not offered | normal prompts |
 
+Claude Code applies the run folder's settings only after you accept its "trust this folder"
+dialog, which it shows once when the run starts; decline it and every command asks first.
+
 **These rules are not limited to your `kyq-*` servers.** `ssh`, `scp` and `curl` are approved
 for any host and any arguments, and Codex's sandbox lets every command reach the network.
 `./bin/on` runs whatever command it is given, on a `kyq-*` server or, with `local`, on this
