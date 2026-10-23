@@ -31,7 +31,7 @@ each one a test install. Each run's `feedback.md` records README and kyquickstar
   [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`),
   [Codex CLI](https://github.com/openai/codex) (`codex`),
   [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) or
-  [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; it puts the dashboard beside the agent.
+  [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; with it the dashboard opens beside the agent (`kyqs-ai` starts a tmux session when you are not in one).
 - **Where the apps run:** this computer, servers, Kubernetes clusters, or a mix. Servers and
   this computer need Linux with Docker Engine and the compose plugin already installed (Podman
   is not supported); servers need a login that can use `sudo` (once, below). Clusters need a
@@ -46,7 +46,6 @@ each one a test install. Each run's `feedback.md` records README and kyquickstar
 ```sh
 git clone https://github.com/Busnes-app/KyQuickStart-AI.git
 cd KyQuickStart-AI
-tmux new -s ky        # optional: dashboard opens in a side pane
 ./kyqs-ai
 ```
 
