@@ -56,10 +56,14 @@ The launcher walks you through:
    short name, its address and your admin login.
 2. **Agent.** It picks from the agents installed on your computer, and for Claude Code and Codex
    asks whether to run hands-off (below).
-3. **The run.** The agent interviews you once (domain, apps, user names, proxy), checks the
-   servers, and shows a plan. After you say "go" it works on its own, and only comes back for
+3. **Setup form.** One question per screen: domain, apps, who reaches them, proxy and
+   certificates, placement, the admin and everyday accounts, the recovery ceremony and mail.
+   Lists are ticked with Space and confirmed with Enter (↑/↓ move, q quits); a review screen
+   lets you change any answer before the agent starts. The answers go to the run's
+   `interview.yaml`.
+4. **The run.** The agent reads your answers, checks the servers, and shows a plan. After you say "go" it works on its own, and only comes back for
    steps a person must do, batched together.
-4. **Handover.** When you exit the agent, the launcher builds the handover sheet and offers to
+5. **Handover.** When you exit the agent, the launcher builds the handover sheet and offers to
    show and print it.
 
 Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of

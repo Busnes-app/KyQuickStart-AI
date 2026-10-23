@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+# The setup form kyqs-ai shows before the agent starts: the interview of PROMPT.md section 3,
+# one question per screen, apps and choices as lists to tick. Writes <run>/interview.yaml,
+# which the agent reads instead of sending its own form. Exit 1: the user quit.
+# usage: interview <run-dir>     (keys: ↑/↓ or k/j move, Space ticks, Enter confirms)
+set -euo pipefail
+
+run=${1:?usage: interview <run-dir>}
+out=$run/interview.yaml
+
+# The Ky catalog as the form offers it: name|label|purpose|placement|exposure|default.
+# Keep in step with PROMPT.md section 4.
+CATALOG='kyidentity|KyIdentity|sign-in, users, MFA (required)|docker kube|either|on
+kyrecovery|KyRecovery|backups; needs the custodian ceremony|docker kube|internal|on
+kypulse|kyPulse|health checks and alerts|docker kube|internal|on
+kyyard|KyYard|inventory and operations; needs a release kyquickstart|docker kube|internal|off
+kynotes|KyNotes|end-to-end encrypted notes|docker kube|either|on
+kypost|KyPost|mail client; its AI model needs ~8 GB RAM|docker|either|on
+kydrive|KyDrive|files and shared workspaces|docker|either|on
+kycalendar|KyCalendar|calendars, CalDAV, tasks|docker kube|either|on
+kymessage|KyMessage|team chat (Matrix); heavy|docker|either|on
+kydns|KyDNS|LAN DNS and service directory|docker|internal|off'
+
+field() { printf '%s\n' "$CATALOG" | awk -F'|' -v n="$1" -v f="$2" '$1 == n {print $f}'; }
+NAMES=$(printf '%s\n' "$CATALOG" | cut -d'|' -f1)
+
+TARGETS=$(cat "$run/hosts.txt")
+kind_of() { case $1 in kube-*) echo kube ;; *) echo docker ;; esac; }
+KUBE=$(printf '%s\n' "$TARGETS" | grep '^kube-' || true)
+yard_ok=true
+if ! [ -x "$run/bin/kyquickstart" ] || [ "$("$run/bin/kyquickstart" version 2>/dev/null | head -1)" = dev ]; then
+	yard_ok=false
+fi
+
+bold() { printf '\033[1m%s\033[0m' "$*"; }
+dim() { printf '\033[2m%s\033[0m' "$*"; }
+screen() { # <step> <title>
+	printf '\n%s  %s\n' "$(bold "KyQuickStart AI setup · $1")" "$(bold "$2")"
+}
+
+KEY=''
+key() { # one key press into KEY: up, down, space, enter or the character
+	local k rest=
+	IFS= read -rsn1 k || exit 1
+	if [ "$k" = $'\033' ]; then
+		IFS= read -rsn2 rest || true
+		k=$k$rest
+	fi
+	case $k in
+	$'\033[A' | k) KEY=up ;;
+	$'\033[B' | j) KEY=down ;;
+	' ') KEY=space ;;
+	'') KEY=enter ;;
+	q) KEY=quit ;;
+	*) KEY=$k ;;
+	esac
+}
+
+# list <multi:0|1> <items, one per line> <marks: one 0/1 per item> <locked: 0/1 per item>:
+# draws the list and returns the confirmed marks in MARKS (multi) or the index in PICK.
+MARKS='' PICK=''
+list() {
+	local multi=$1 items=$2 locked=$4 n cur=0 i drawn=0
+	local -a it mk lk
+	IFS=$'\n' read -r -d '' -a it <<<"$items" || true
+	read -r -a mk <<<"$3"
+	read -r -a lk <<<"$locked"
+	n=${#it[@]}
+	if [ "$multi" = 0 ]; then
+		for ((i = 0; i < n; i++)); do [ "${mk[i]}" = 1 ] && cur=$i; done
+	fi
+	dim "  ↑/↓ move · $([ "$multi" = 1 ] && echo 'Space ticks · ')Enter confirms · q quits"
+	echo
+	while :; do
+		[ $drawn = 0 ] || printf '\033[%dA' "$n"
+		drawn=1
+		for ((i = 0; i < n; i++)); do
+			local ptr='  ' box fixed=''
+			[ $i = $cur ] && ptr='> '
+			if [ "$multi" = 1 ]; then
+				box='[ ]'
+				[ "${mk[i]}" = 1 ] && box='[x]'
+				[ "${lk[i]:-0}" = 1 ] && fixed=" $(dim '(fixed)')"
+			else
+				box='( )'
+				[ $i = $cur ] && box='(•)'
+			fi
+			printf '\r\033[K%s%s %s%s\n' "$ptr" "$box" "${it[i]}" "$fixed"
+		done
+		key
+		case $KEY in
+		up) cur=$(((cur + n - 1) % n)) ;;
+		down) cur=$(((cur + 1) % n)) ;;
+		space) [ "$multi" = 1 ] && [ "${lk[cur]:-0}" != 1 ] && mk[cur]=$((1 - mk[cur])) ;;
+		enter) break ;;
+		quit) exit 1 ;;
+		esac
+	done
+	MARKS="${mk[*]}" PICK=$cur
+}
+
+# text <var> <prompt> <default> <check function> <what the check wants>
+text() {
+	local var=$1 prompt=$2 def=$3 check=$4 want=$5 v
+	while :; do
+		read -er -p "  $prompt${def:+ [$def]}: " v || exit 1
+		v=${v:-$def}
+		if $check "$v"; then
+			printf -v "$var" '%s' "$v"
+			return
+		fi
+		echo "  $want"
+	done
+}
+
+re_host='^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+re_user='^[a-z0-9][a-z0-9._-]{2,63}$'
+re_mail='^[^@[:space:]"]+@[a-z0-9.-]+\.[a-z]{2,}$'
+is_host() { [[ $1 =~ $re_host ]]; }
+is_user() { [[ $1 =~ $re_user ]] && [ "$1" != admin ]; }
+is_admin_user() { is_user "$1"; }
+is_everyday_user() { is_user "$1" && [ "$1" != "$admin_user" ]; }
+is_mail() { [[ $1 =~ $re_mail ]]; }
+is_everyday_mail() { is_mail "$1" && [ "$1" != "$admin_mail" ]; }
+is_text() { [ -n "$1" ] && [ ${#1} -le 100 ] && [[ $1 != *[\"\\]* ]]; }
+is_port() { [[ $1 =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+is_relay_user() { [ -z "$1" ] || is_text "$1"; }
+
+# Answers.
+domain='' internal_domain='' exposure=lan proxy='' certs=cloudflare placement=agent
+org='' admin_user='' admin_mail='' everyday_user='' everyday_mail='' ceremony=this-run
+mail=mailpit relay_host='' relay_port=587 relay_user='' local_fixed=''
+APPS='' EXTERNAL='' TARGET_OF=''
+
+q_domain() {
+	screen "1/8" "Domain"
+	echo "  Every app gets a hostname under it, such as id.<domain>."
+	text domain "Domain" "$domain" is_host "Enter a lowercase DNS name such as example.com."
+}
+
+q_apps() {
+	screen "2/8" "Apps to install"
+	local items='' marks='' locked='' n
+	for n in $NAMES; do
+		local on=0 lock=0
+		case $(field "$n" 6) in on) on=1 ;; esac
+		if [ -n "$APPS" ]; then
+			on=0
+			if [[ " $APPS " == *" $n "* ]]; then on=1; fi
+		fi
+		[ "$n" = kyidentity ] && on=1 lock=1
+		if [ "$n" = kyyard ] && ! $yard_ok; then on=0 lock=1; fi
+		items+=$(printf '%-11s %s' "$(field "$n" 2)" "$(dim "$(field "$n" 3)")")$'\n'
+		marks+="$on " locked+="$lock "
+	done
+	$yard_ok || dim "  KyYard is locked off: this kyquickstart is a development build without a runner image."
+	echo
+	list 1 "$items" "$marks" "$locked"
+	local -a m
+	read -r -a m <<<"$MARKS"
+	APPS='' i=0
+	for n in $NAMES; do
+		[ "${m[i]}" = 1 ] && APPS+="$n "
+		i=$((i + 1))
+	done
+	APPS=${APPS% }
+}
+
+q_exposure() {
+	screen "3/8" "Who reaches the apps"
+	local was=0
+	[ "$exposure" = per-app ] && was=1
+	list 0 $'LAN only: every app is internal, one domain\nPer app: some apps on the internet through a Cloudflare tunnel or frp' "$((1 - was)) $was" ""
+	if [ "$PICK" = 0 ]; then
+		exposure=lan EXTERNAL='' internal_domain=''
+		return
+	fi
+	exposure=per-app
+	echo
+	echo "  Tick the apps the internet may reach. KyRecovery, kyPulse, KyYard and KyDNS stay internal."
+	local items='' marks='' n
+	for n in $APPS; do
+		[ "$(field "$n" 5)" = either ] || continue
+		items+=$(field "$n" 2)$'\n'
+		if [[ " $EXTERNAL " == *" $n "* ]]; then marks+='1 '; else marks+='0 '; fi
+	done
+	list 1 "$items" "$marks" ""
+	local -a m
+	read -r -a m <<<"$MARKS"
+	EXTERNAL='' i=0
+	for n in $APPS; do
+		[ "$(field "$n" 5)" = either ] || continue
+		[ "${m[i]}" = 1 ] && EXTERNAL+="$n "
+		i=$((i + 1))
+	done
+	EXTERNAL=${EXTERNAL% }
+	# Every app signs in through KyIdentity: one external app makes it external.
+	if [ -n "$EXTERNAL" ] && [[ " $EXTERNAL " != *" kyidentity "* ]]; then
+		EXTERNAL="kyidentity $EXTERNAL"
+		echo "  KyIdentity is external too: whoever reaches an external app signs in there."
+	fi
+	text internal_domain "Internal domain (kept out of public DNS)" "${internal_domain:-lan.$domain}" is_host "Enter a lowercase DNS name."
+}
+
+q_proxy() {
+	screen "4/8" "Proxy and certificates"
+	local items='' opts=() k
+	for k in $KUBE; do
+		items+="New Nginx Proxy Manager on $k (kyquickstart installs it)"$'\n'
+		opts+=("new-npm:$k")
+	done
+	items+=$'An Nginx Proxy Manager I already run (the agent adds only its own hosts)\nMy own reverse proxy'
+	opts+=(existing-npm own)
+	local marks='' i
+	for ((i = 0; i < ${#opts[@]}; i++)); do
+		if [ "${opts[i]}" = "${proxy:-${opts[0]}}" ]; then marks+='1 '; else marks+='0 '; fi
+	done
+	list 0 "$items" "$marks" ""
+	proxy=${opts[PICK]}
+	echo
+	echo "  Certificates:"
+	list 0 $'Let'"'"$'s Encrypt through Cloudflare DNS (you store the API token with put-secret)\nI bring my own certificates' \
+		"$([ "$certs" = cloudflare ] && echo '1 0' || echo '0 1')" ""
+	certs=cloudflare
+	[ "$PICK" = 1 ] && certs=own
+	return 0
+}
+
+q_placement() {
+	screen "5/8" "Where each app runs"
+	list 0 $'Let the agent decide from the preflight results\nChoose a target for each app' "$([ "$placement" = agent ] && echo '1 0' || echo '0 1')" ""
+	if [ "$PICK" = 0 ]; then
+		placement=agent TARGET_OF=''
+		return
+	fi
+	placement=chosen
+	local n t new=''
+	for n in $APPS; do
+		local items='' opts=() marks='' i was
+		was=$(printf '%s\n' "$TARGET_OF" | awk -F= -v n="$n" '$1 == n {print $2}')
+		for t in $TARGETS; do
+			[[ " $(field "$n" 4) " == *" $(kind_of "$t") "* ]] || continue
+			items+="$t"$'\n'
+			opts+=("$t")
+		done
+		echo
+		echo "  $(field "$n" 2):"
+		for ((i = 0; i < ${#opts[@]}; i++)); do
+			if [ "${opts[i]}" = "$was" ]; then marks+='1 '; else marks+='0 '; fi
+		done
+		if [ ${#opts[@]} = 0 ]; then
+			echo "  no target can run it ($(field "$n" 4) only); the agent will say so"
+			continue
+		fi
+		list 0 "${items%$'\n'}" "$marks" ""
+		new+="$n=${opts[PICK]}"$'\n'
+	done
+	TARGET_OF=$new
+}
+
+q_people() {
+	screen "6/8" "People"
+	echo "  Two separate accounts: the admin account only administers; the everyday account has"
+	echo "  no admin rights anywhere. Usernames: 3-64 of a-z 0-9 . _ -, not \"admin\". No suggestions."
+	text org "Organisation name" "$org" is_text "Enter up to 100 characters, without quotes or backslashes."
+	text admin_user "Admin username" "$admin_user" is_admin_user "Use 3-64 of a-z 0-9 . _ -, starting with a letter or digit, not \"admin\"."
+	text admin_mail "Admin email" "$admin_mail" is_mail "Enter an email address such as you@example.com."
+	text everyday_user "Everyday username" "$everyday_user" is_everyday_user "Use 3-64 of a-z 0-9 . _ -, not \"admin\", and not the admin username."
+	text everyday_mail "Everyday email" "$everyday_mail" is_everyday_mail "Enter an email address other than the admin's."
+}
+
+q_ceremony() {
+	screen "7/8" "KyRecovery custodian ceremony"
+	echo "  It needs a person, a browser and a printer for the k-of-n cards. Nothing is backed up until it runs."
+	list 0 $'Later in this run (the agent asks when everything else is done)\nNot in this run' "$([ "$ceremony" = this-run ] && echo '1 0' || echo '0 1')" ""
+	ceremony=this-run
+	[ "$PICK" = 1 ] && ceremony=not-now
+	return 0
+}
+
+q_mail() {
+	screen "8/8" "Outgoing mail (email verification, notices)"
+	list 0 $'Mailpit: a test catcher, nothing leaves the lab\nMy SMTP relay (its password goes in later with put-secret)' "$([ "$mail" = mailpit ] && echo '1 0' || echo '0 1')" ""
+	if [ "$PICK" = 0 ]; then
+		mail=mailpit
+	else
+		mail=relay
+		text relay_host "Relay host" "$relay_host" is_host "Enter the relay's DNS name."
+		text relay_port "Relay port" "$relay_port" is_port "Enter a port number."
+		text relay_user "Relay username (blank for none)" "$relay_user" is_relay_user "Up to 100 characters, without quotes or backslashes."
+	fi
+	if printf '%s\n' "$TARGETS" | grep -qx local; then
+		echo
+		echo "  This computer is a target: other devices reach its apps only at its LAN address."
+		list 0 $'Its LAN address is fixed (a DHCP reservation or static)\nIt may change\nI do not know' "1 0 0" ""
+		local f=(yes no unknown)
+		local_fixed=${f[PICK]}
+	fi
+	return 0
+}
+
+label_of() { local n s=''; for n in $1; do s+="$(field "$n" 2), "; done; printf '%s' "${s%, }"; }
+
+summary() {
+	screen "review" "Your answers"
+	printf '  1. Domain      %s\n' "$domain"
+	printf '  2. Apps        %s\n' "$(label_of "$APPS")"
+	if [ "$exposure" = lan ]; then
+		printf '  3. Exposure    LAN only\n'
+	else
+		printf '  3. Exposure    external: %s; internal domain %s\n' "$(label_of "$EXTERNAL")" "$internal_domain"
+	fi
+	printf '  4. Proxy       %s; certificates: %s\n' "$proxy" "$certs"
+	if [ "$placement" = agent ]; then printf '  5. Placement   the agent decides\n'; else printf '  5. Placement   %s\n' "$(printf '%s' "$TARGET_OF" | tr '\n' ' ')"; fi
+	printf '  6. People      %s; admin %s <%s>; everyday %s <%s>\n' "$org" "$admin_user" "$admin_mail" "$everyday_user" "$everyday_mail"
+	printf '  7. Ceremony    %s\n' "$ceremony"
+	printf '  8. Mail        %s\n' "$([ "$mail" = mailpit ] && echo Mailpit || echo "relay $relay_host:$relay_port")"
+	echo
+}
+
+q() { printf '"%s"' "$1"; } # answers are validated: no quotes or backslashes
+
+write() {
+	local n tmp=$out.tmp
+	{
+		printf '# Answers from the kyqs-ai setup form, %s. The agent reads these instead of\n' "$(date '+%Y-%m-%d %H:%M')"
+		printf '# sending its own interview; "agent" leaves the choice to the agent.\n'
+		printf 'domain: %s\nexposure: %s\n' "$(q "$domain")" "$([ "$exposure" = lan ] && echo lan-only || echo per-app)"
+		[ "$exposure" = lan ] || printf 'internal_domain: %s\n' "$(q "$internal_domain")"
+		printf 'proxy: %s\ncertificates: %s\napps:\n' "$(q "$proxy")" "$certs"
+		for n in $APPS; do
+			local t=agent e=internal
+			[ "$placement" = agent ] || t=$(printf '%s\n' "$TARGET_OF" | awk -F= -v n="$n" '$1 == n {print $2}')
+			[[ " $EXTERNAL " == *" $n "* ]] && e=external
+			printf '  - {name: %s, target: %s, exposure: %s}\n' "$n" "${t:-agent}" "$e"
+		done
+		printf 'org: %s\n' "$(q "$org")"
+		printf 'admin: {username: %s, email: %s}\n' "$(q "$admin_user")" "$(q "$admin_mail")"
+		printf 'everyday: {username: %s, email: %s}\n' "$(q "$everyday_user")" "$(q "$everyday_mail")"
+		printf 'ceremony: %s\n' "$ceremony"
+		if [ "$mail" = mailpit ]; then
+			printf 'mail: mailpit\n'
+		else
+			printf 'mail: {relay: %s, port: %s, username: %s}\n' "$(q "$relay_host")" "$relay_port" "$(q "$relay_user")"
+		fi
+		[ -z "$local_fixed" ] || printf 'local_address_fixed: %s\n' "$local_fixed"
+	} >"$tmp"
+	mv "$tmp" "$out"
+}
+
+q_domain
+q_apps
+q_exposure
+q_proxy
+q_placement
+q_people
+q_ceremony
+q_mail
+while :; do
+	summary
+	list 0 $'Start the agent with these answers\nChange 1. Domain\nChange 2. Apps (then exposure and placement again)\nChange 3. Exposure\nChange 4. Proxy\nChange 5. Placement\nChange 6. People\nChange 7. Ceremony\nChange 8. Mail\nQuit without starting' "1 0 0 0 0 0 0 0 0 0" ""
+	case $PICK in
+	0) break ;;
+	1) q_domain ;;
+	2) q_apps && q_exposure && q_placement ;;
+	3) q_exposure ;;
+	4) q_proxy ;;
+	5) q_placement ;;
+	6) q_people ;;
+	7) q_ceremony ;;
+	8) q_mail ;;
+	9) exit 1 ;;
+	esac
+done
+write
+echo "  Saved $out"

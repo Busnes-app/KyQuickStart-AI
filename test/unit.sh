@@ -75,4 +75,29 @@ ok "handover resolves secrets, refuses traversal, lists steps, writes 0600"
 "$ROOT/bin/on" evil 'true' 2>/dev/null && fail "on: accepted an unknown target"
 ok "on runs local commands from home with pipes and exit status, refuses unknown targets"
 
+f=$work/form
+mkdir -p "$f"
+printf 'local\nkyq-k82\nkube-lab\n' >"$f/hosts.txt"
+{
+	printf 'Bad.Domain\nlab.example.com\n' # domain: refused, then accepted
+	printf 'jjjjjjjjj \n'                  # apps: tick KyDNS (KyYard stays locked off)
+	printf 'j\nj \n\n'                     # per app; KyNotes external; internal domain default
+	printf '\n\n'                          # proxy, certificates
+	printf 'j\njj\n'                       # placement per app; KyIdentity on kube-lab
+	printf '\n%.0s' 1 2 3 4 5 6 7 8
+	printf 'Org\nadmin\nboss.adm\nboss@example.com\nboss.adm\nowner1\nboss@example.com\nme@example.com\n'
+	printf '\n\n\n\n' # ceremony, Mailpit, local address fixed, review: start
+} | "$ROOT/bin/interview" "$f" >/dev/null || fail "interview: did not finish"
+y=$f/interview.yaml
+for want in 'domain: "lab.example.com"' 'exposure: per-app' 'internal_domain: "lan.lab.example.com"' \
+	'proxy: "new-npm:kube-lab"' '{name: kyidentity, target: kube-lab, exposure: external}' \
+	'{name: kynotes, target: local, exposure: external}' '{name: kydns, target: local, exposure: internal}' \
+	'admin: {username: "boss.adm", email: "boss@example.com"}' 'everyday: {username: "owner1", email: "me@example.com"}' \
+	'mail: mailpit' 'local_address_fixed: yes'; do
+	grep -qF "$want" "$y" || fail "interview.yaml lacks $want"
+done
+grep -q kyyard "$y" && fail "interview: KyYard selected without a release kyquickstart"
+printf 'lab.example.com\n\nq' | "$ROOT/bin/interview" "$f" >/dev/null && fail "interview: q did not quit"
+ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; q quits"
+
 echo "unit: all passed"
