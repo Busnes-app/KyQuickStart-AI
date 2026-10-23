@@ -492,8 +492,14 @@ start() {
 		"$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)" \
 		"$([ -x "$run/bin/kyquickstart" ] && "$run/bin/kyquickstart" version | head -1 || echo none)" >"$run/launch.txt"
 	say "Run folder: $run"
+	local kick="You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."
+	# The interview as a form here, with lists to tick, instead of a chat message to edit.
+	if [ -t 0 ]; then
+		"$ROOT/bin/interview" "$run" || die "setup cancelled before the agent started; nothing was installed"
+		kick="$kick The user answered the interview in ./interview.yaml."
+	fi
 	dashboard_hint "$run"
-	launch "$agent" "$hands" "$run" "You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."
+	launch "$agent" "$hands" "$run" "$kick"
 	finish "$run"
 }
 

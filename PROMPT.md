@@ -123,7 +123,13 @@ If `local` is a target, it is a personal computer: say that apps stop when it sl
 down, and that other devices reach it only at its LAN address (ask whether that address is
 fixed).
 
-Keep the interview short: a dense first message was unreadable in practice. Send a
+If `./interview.yaml` exists, the user already answered this interview in the launcher's
+setup form: do not send the form. Take every answer from the file (`agent` leaves a placement
+to you), check it against the rules below and section 4, and ask only about an answer that
+breaks them or a question it leaves open (such as the DNS provider when it is not
+Cloudflare). Record the answers in `state.md` as from the interview.
+
+Otherwise keep the interview short: a dense first message was unreadable in practice. Send a
 **numbered form with your recommended answer already filled in** for each item, one line
 each, and ask the user to reply "ok" or change only the numbers they disagree with. Items
 marked `<ask>` have no default: the user must fill them in. Put the app menu (section 4)

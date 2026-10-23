@@ -21,6 +21,9 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   agent launch per CLI, dashboard placement, handover after exit.
 - `bin/prepare-host.sh`, `bin/revoke-host.sh`: the only root-run code; POSIX `sh`.
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
+- `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
+  writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
+  terminal; without one the agent sends its chat form.
 - `README.md`: user guide.
 
 ## Local Contracts
@@ -64,7 +67,7 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 ## Verification
 
 - `shellcheck -x kyqs-ai bin/* test/*.sh`
-- `test/unit.sh`: progress, dashboard, redact, handover.
+- `test/unit.sh`: progress, dashboard, redact, handover, the setup form (scripted keys).
 - `test/e2e.sh`: needs Docker; disposable sshd container with a stub `docker`: add-host,
   pinning and tamper refusal, `--prepared`, add-cluster/remove-cluster with a stub
   kyquickstart, put-secret, handover, guided start with a stub agent (targets.tsv, kyquickstart
