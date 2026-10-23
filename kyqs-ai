@@ -445,8 +445,109 @@ pick_mode() {
 	esac
 }
 
+# self_update <command>: offers to fast-forward this checkout when its upstream moved on, then
+# reruns the command with the new launcher. Local changes or a diverged branch are only reported.
+self_update() {
+	local up behind
+	up=$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || return 0
+	git -C "$ROOT" fetch -q 2>/dev/null || {
+		say "Could not check for a newer KyQuickStart AI (offline?); continuing with this one."
+		return 0
+	}
+	behind=$(git -C "$ROOT" rev-list --count "HEAD..$up")
+	[ "$behind" -gt 0 ] || return 0
+	say "KyQuickStart AI is $behind commit(s) behind $up."
+	if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ] || ! git -C "$ROOT" merge-base --is-ancestor HEAD "$up"; then
+		say "  This copy has local changes, so update it yourself: git -C $ROOT pull --ff-only"
+		return 0
+	fi
+	confirm "Update it now?" || return 0
+	git -C "$ROOT" merge -q --ff-only "$up"
+	say "Updated. Restarting with the new version."
+	exec "$ROOT/kyqs-ai" "$1"
+}
+
+KYQ_REPO=Busnes-app/KyQuickStart
+
+# latest_release: the newest KyQuickStart release as lines "tag <tag>" and
+# "asset <name> <url> <sha256:digest>". Needs gh, or curl and jq; prints nothing without them.
+latest_release() {
+	local q='"tag \(.tag_name)", (.assets[] | "asset \(.name) \(.browser_download_url) \(.digest)")'
+	if command -v gh >/dev/null; then
+		gh api "repos/$KYQ_REPO/releases/latest" --jq "$q" 2>/dev/null
+	elif command -v curl >/dev/null && command -v jq >/dev/null; then
+		curl -fsSL --max-time 15 "https://api.github.com/repos/$KYQ_REPO/releases/latest" 2>/dev/null | jq -r "$q"
+	fi
+}
+
+older() { # <a> <b>: version a is older than b (X.Y.Z)
+	[ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$1" ]
+}
+
+# kyq_update: offers the latest kyquickstart release when the one in use is older or missing.
+# The download must match the digest GitHub publishes for it and, when gh is installed, the
+# release's build attestation; it then replaces the old binary (or goes to ~/.local/bin).
+kyq_update() {
+	local rel tag have os arch name url digest dest tmp sum
+	[ -n "$KYQ_BIN" ] || [ -z "${KYQS_KYQUICKSTART+set}" ] || return 0 # set empty on purpose: none
+	rel=$(latest_release) || true
+	tag=$(printf '%s\n' "$rel" | sed -n 's/^tag v//p')
+	if [ -z "$tag" ]; then
+		say "Could not check for a newer kyquickstart (offline, or neither gh nor curl and jq)."
+		return 0
+	fi
+	have=
+	[ -z "$KYQ_BIN" ] || have=$("$KYQ_BIN" version 2>/dev/null | head -1)
+	case $have in
+	dev)
+		say "kyquickstart here is a development build; the latest release is v$tag."
+		return 0
+		;;
+	'') ;;
+	*) older "$have" "$tag" || return 0 ;;
+	esac
+	os=$(uname -s | tr '[:upper:]' '[:lower:]')
+	case $(uname -m) in x86_64 | amd64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; *) arch=$(uname -m) ;; esac
+	name=kyquickstart-$tag-$os-$arch
+	read -r url digest <<<"$(printf '%s\n' "$rel" | awk -v n="$name" '$1 == "asset" && $2 == n {print $3, $4}')"
+	if [ -z "$url" ] || [ "${digest#sha256:}" = "$digest" ]; then
+		say "kyquickstart v$tag is out, but the release has no verified $name binary yet."
+		return 0
+	fi
+	dest=${KYQ_BIN:-$HOME/.local/bin/kyquickstart}
+	[ -w "$(dirname "$dest")" ] || dest=$HOME/.local/bin/kyquickstart # a system copy stays as it is
+	if [ -n "$have" ]; then
+		confirm "kyquickstart $have is older than the latest release, v$tag. Download v$tag to $dest?" || return 0
+	else
+		confirm "kyquickstart is not installed. Download the latest release, v$tag, to $dest?" || return 0
+	fi
+	mkdir -p "$(dirname "$dest")"
+	tmp=$(mktemp "$(dirname "$dest")/.kyquickstart.XXXXXX")
+	if ! curl -fsSL --max-time 300 -o "$tmp" "$url"; then
+		rm -f "$tmp"
+		say "  download failed; keeping ${have:+kyquickstart }${have:-nothing}"
+		return 0
+	fi
+	sum=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | awk '{print $1}')
+	if [ "sha256:$sum" != "$digest" ]; then
+		rm -f "$tmp"
+		say "  the download does not match the digest GitHub published; not installed"
+		return 0
+	fi
+	if command -v gh >/dev/null && ! gh attestation verify "$tmp" --repo "$KYQ_REPO" >/dev/null 2>&1; then
+		rm -f "$tmp"
+		say "  its build attestation did not verify; not installed"
+		return 0
+	fi
+	chmod 755 "$tmp"
+	mv -f "$tmp" "$dest"
+	KYQ_BIN=$dest
+	say "  kyquickstart v$tag installed at $dest"
+}
+
 start() {
 	need git awk sed
+	[ ! -t 0 ] || kyq_update
 	say "Install targets:"
 	hosts
 	if [ ! -f "$LOCAL" ] && confirm "Install on this computer?"; then
@@ -534,6 +635,7 @@ revoke() {
 
 cmd=${1:-start}
 [ $# -gt 0 ] && shift
+case $cmd in start | resume) [ ! -t 0 ] || self_update "$cmd" ;; esac
 # The dashboard opens beside the agent only inside tmux, so a run starts its own session when
 # tmux is installed. The window stays open after the run, so its last lines can be read.
 if { [ "$cmd" = start ] || [ "$cmd" = resume ]; } && [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then

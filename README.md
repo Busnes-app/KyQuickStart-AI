@@ -49,6 +49,15 @@ cd KyQuickStart-AI
 ./kyqs-ai
 ```
 
+The launcher first checks for updates. If this copy of KyQuickStart AI is behind its git
+upstream, it offers to update it (`git pull --ff-only`) and restarts; a copy with local changes
+is only reported. If `kyquickstart` is missing or older than the latest
+[KyQuickStart release](https://github.com/Busnes-app/KyQuickStart/releases), it offers to
+download the release binary for this computer. The download must match the SHA-256 digest
+GitHub publishes for it and, when `gh` is installed, the release's build attestation; it
+replaces the old binary, or goes to `~/.local/bin`. A development build is only reported.
+This needs `gh`, or `curl` and `jq`.
+
 The launcher walks you through:
 
 1. **Where to install.** This computer, one or more servers, or both. For each server give a
