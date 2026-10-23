@@ -29,7 +29,10 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
   writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
   terminal; without one the agent sends its chat form.
-- `README.md`: user guide.
+- `README.md`: user guide. `CHANGELOG.md`: release notes.
+- Releases are source only: the version is the git tag `vX.Y.Z`, with no VERSION file. Users
+  run a clone, and `launch.txt` records `git describe --tags`. To release, add the
+  `CHANGELOG.md` section, merge, and publish the GitHub release `vX.Y.Z` on `master`.
 
 ## Local Contracts
 
