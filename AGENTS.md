@@ -19,6 +19,11 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `kyqs-ai`: launcher. Targets (`add-local`, `add-host`, `add-cluster`, `remove-cluster`,
   `revoke`), `put-secret`, run folders (`targets.tsv`, a copy of `kyquickstart`, `kyq/`),
   agent launch per CLI, dashboard placement, handover after exit.
+- Updates (`self_update`, `kyq_update` in `kyqs-ai`): on a terminal, `start` and `resume` offer
+  to fast-forward this checkout, and `start` offers the latest KyQuickStart release binary when
+  the one in use is older or missing. A binary is installed only after it matches GitHub's
+  published digest and, with `gh`, the release attestation; development builds and resumed
+  runs (which keep their own copy) are never replaced.
 - `bin/prepare-host.sh`, `bin/revoke-host.sh`: the only root-run code; POSIX `sh`.
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
