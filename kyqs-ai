@@ -590,7 +590,7 @@ start() {
 	printf '%s\n' "${ready[@]}" >"$run/hosts.txt"
 	target_facts "${ready[@]}" >"$run/targets.tsv"
 	printf 'agent: %s\nhands-off: %s\nlauncher: %s\nkyquickstart-ai: %s\nkyquickstart: %s\n' "$agent" "$hands" "$ROOT/kyqs-ai" \
-		"$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)" \
+		"$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)" \
 		"$([ -x "$run/bin/kyquickstart" ] && "$run/bin/kyquickstart" version | head -1 || echo none)" >"$run/launch.txt"
 	say "Run folder: $run"
 	local kick="You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."

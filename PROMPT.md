@@ -448,7 +448,7 @@ admins, NPM admin, recovery pairing state. Run
 `./bin/handover . >/dev/null` to check it resolves (exit 0); **never open `handover.txt`**.
 The launcher shows it to the user after you exit.
 
-## 9. Feedback report (`feedback.md`) — the point of this test run
+## 9. Feedback report (`feedback.md`) — every run delivers one
 
 Create it at the start and add to it the moment something happens; a crash must not lose
 findings. Structure:

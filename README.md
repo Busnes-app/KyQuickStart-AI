@@ -19,8 +19,9 @@ identity/backup/monitoring integrations, and reports the outcome. Completion dep
 product readiness, supplied services and observed checks; launching an agent does not
 guarantee these steps succeeded.
 
-**Status:** early. No third-party app has completed suite admission yet, so the agent labels
-each one a test install. Each run's `feedback.md` records README and kyquickstart gaps.
+**Status:** v0.5.0 is the first release, after five complete install runs. No third-party app
+has completed suite admission yet, so the agent labels each one a test install. Each run's
+`feedback.md` records README and kyquickstart gaps.
 
 ## What you need
 
@@ -222,7 +223,7 @@ It gives you a command that stores it straight on the server:
 | File in the run folder | Contents |
 |---|---|
 | `handover.txt` | URLs, administrator and everyday logins, break-glass admins, remaining manual steps |
-| `feedback.md` | Test report: what worked, what failed, and the README changes each repo needs |
+| `feedback.md` | Run report: what worked, what failed, and the README changes each repo needs |
 | `install-guide-draft.md` | The install sequence that worked, written for a newcomer |
 | `state.md` | The plan, decisions and everything created, for resuming and auditing |
 | `kyq/` | kyquickstart's plan (`stack.yaml`) and results; no secrets. Keep it: later runs operate the same installation from it |
