@@ -389,7 +389,9 @@ dashboard_hint() {
 	else
 		say "Live dashboard: open a second terminal and run"
 		say "  $ROOT/kyqs-ai dashboard"
-		say "(Run kyqs-ai inside tmux next time and it opens beside the agent by itself.)"
+		say "(Install tmux and it opens beside the agent by itself.)"
+		# The agent's full-screen view would cover this at once.
+		[ ! -t 0 ] || read -rp "Press Enter to start the agent. " _
 	fi
 }
 
@@ -526,6 +528,12 @@ revoke() {
 
 cmd=${1:-start}
 [ $# -gt 0 ] && shift
+# The dashboard opens beside the agent only inside tmux, so a run starts its own session when
+# tmux is installed. The window stays open after the run, so its last lines can be read.
+if { [ "$cmd" = start ] || [ "$cmd" = resume ]; } && [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
+	# shellcheck disable=SC2016 # $0, $1 and $? are the inner bash's, not this script's
+	exec tmux new-session -s "kyqs-ai-$$" bash -c '"$0" "$1"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$cmd"
+fi
 case $cmd in
 start) start ;;
 add-local) add_local ;;
