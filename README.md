@@ -245,10 +245,21 @@ card distribution and a scratch restore with the actual cards. A generated hando
 screenshot, successful health response or synthetic recovery drill proves only its own
 scope. Keep passwords and real recovery shares out of public reports and promo images.
 
+## Security and releases
+
+- [Assurance case](docs/ASSURANCE-CASE.md): what the agent can and cannot reach, the threat
+  model, and which protections are enforced and which are prompt instructions.
+- [Verifying releases](docs/VERIFYING-RELEASES.md): check that your clone is at a release's
+  GitHub-signed commit.
+- Report vulnerabilities privately, per the
+  [Busnes-app security policy](https://github.com/Busnes-app/.github/blob/main/SECURITY.md).
+
 ## Development
 
+[CONTRIBUTING.md](CONTRIBUTING.md) has the process, test policy and coding standard.
+
 ```sh
-shellcheck kyqs-ai bin/* test/*.sh
+shellcheck -x kyqs-ai bin/* test/*.sh
 test/unit.sh      # progress, dashboard, redact, handover
 test/e2e.sh       # needs Docker: add-host, key pinning, put-secret, handover, revoke
 ```

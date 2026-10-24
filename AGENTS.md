@@ -29,7 +29,11 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
   writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
   terminal; without one the agent sends its chat form.
-- `README.md`: user guide. `CHANGELOG.md`: release notes.
+- `README.md`: user guide. `CHANGELOG.md`: release notes. `CONTRIBUTING.md`: process, test
+  policy and coding standard.
+- `docs/ASSURANCE-CASE.md`: threat model, trust boundaries, what the hands-off allow-list does
+  and does not stop, weaknesses table; updated by any change to a trust boundary or the
+  allow-list. `docs/VERIFYING-RELEASES.md`: checking a release tag's GitHub-signed commit.
 - Releases are source only: the version is the git tag `vX.Y.Z`, with no VERSION file. Users
   run a clone, and `launch.txt` records `git describe --tags`. To release, add the
   `CHANGELOG.md` section, merge, and publish the GitHub release `vX.Y.Z` on `master`.
