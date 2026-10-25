@@ -4,6 +4,22 @@ Releases are source only and tagged `vX.Y.Z` on `master`. There is no built arti
 a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the checkout's
 `git describe --tags` in `launch.txt`.
 
+## Unreleased
+
+### Changed
+
+- `add-cluster <name> <admin-kubeconfig>` now creates a ServiceAccount `kyqs-ai/kyqs-ai-<name>`
+  bound to the permissions `kyquickstart preflight` checks, plus `pods/log`, and hands the
+  agent only its kubeconfig. Before, the agent's kubeconfig was the one you gave, often
+  cluster-admin. Clusters added by 0.5.0 show as not ready until you run `add-cluster` again.
+- `revoke kube-<name> <admin-kubeconfig>` deletes that ServiceAccount and its rights. `kubectl`
+  is needed for both.
+- `put-secret` strips leading and trailing whitespace and blank lines, and refuses an empty
+  secret. A pasted leading blank line had broken `Authorization: Bearer $(cat file)`.
+- The prompt checks digest pinning by comparing each container's image ID with the pinned
+  reference's (`docker ps` shows only the tag on Docker 29), and checks shell-less images
+  (KyNotes, MAS) from outside.
+
 ## 0.5.0 — 2026-10-23
 
 First release, after five complete install runs.

@@ -59,9 +59,12 @@ they must log out and back in, then continue with `kyqs-ai resume`.
 **You have no admin rights, by design.** On a `kyq-<name>` server you log in as `kyops`:
 Docker access, no sudo. On `local` (the user's own computer) you run as the user, which is
 more power than you need: touch nothing outside `/srv/ky`, the run folder and Docker objects
-you create, and never use `sudo`. You own `/srv/ky` on every target. If something truly needs
-root, give the user the exact command
-to run themselves and record it as a finding.
+you create, and never use `sudo`. You own `/srv/ky` on every Docker target. On a `kube-<name>`
+cluster, kyquickstart uses the kubeconfig in `targets.tsv`: a ServiceAccount with only the
+permissions `kyquickstart preflight` checks, plus pod logs. It cannot change RBAC, nodes or
+cluster settings, so `handoff` to KyYard on a Kubernetes target is refused; that, and anything
+else needing cluster-admin, is a command for the user and a finding. If something truly needs
+root, give the user the exact command to run themselves and record it as a finding.
 
 **kyquickstart owns what it installs.** Never deploy a catalog product by hand on a target
 kyquickstart can reach, and never change by hand anything it manages (containers and
@@ -423,9 +426,21 @@ For every installed app:
 Automated checks (record each with `bin/progress verify <App> ok|fail`): container healthy;
 `https://` health URL answers; OIDC discovery reachable from inside the app's container; the
 app's login redirects to KyIdentity with the right `redirect_uri`; backups delivered; every
-image pinned by digest (`docker compose config --images` per app, and `docker ps --format
-'{{.Names}} {{.Image}}'`: each must show `@sha256:` or an image you resolved from one), including
-companion containers such as databases, Redis and Matrix services.
+image pinned by digest, including companion containers such as databases, Redis and Matrix
+services. `docker compose config --images` per app must show `@sha256:` for each image. Then
+check what runs; `docker ps` shows only the tag even when compose pins `tag@sha256`, so
+compare each container's image ID with the pinned reference's:
+
+```sh
+./bin/on <target> 'docker inspect -f "{{.Name}} {{.Config.Image}} {{.Image}}" $(docker ps -q) | while read -r n r i; do case $r in *@sha256:*) [ "$(docker image inspect -f "{{.Id}}" "$r")" = "$i" ] && s=pinned || s=MISMATCH ;; *) s=UNPINNED ;; esac; echo "$s $n $r"; done'
+```
+
+Every container you created must print `pinned`.
+
+Some images have no shell (KyNotes, MAS), so `docker exec` checks such as the OIDC discovery
+fetch cannot run inside them. Check those from outside: `docker inspect`, logs through
+`./bin/redact`, and a fetch from the server or from a throwaway container on the app's Docker
+network (`docker run --rm --network <net> ...`). Record which way you checked.
 
 Then one batch of browser checks for the user, as a checklist with URLs:
 admin login works and shows admin features; everyday login works and shows none; everyday

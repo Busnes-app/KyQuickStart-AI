@@ -24,3 +24,17 @@ jobs:
       - uses: actions/checkout@v7
       - run: test/unit.sh
       - run: bash -n kyqs-ai && ./kyqs-ai help >/dev/null
+
+  kube:
+    # A real cluster (kind, preinstalled on the runner) for add-cluster's ServiceAccount.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: kyquickstart release binary, pinned by digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.4.2 -R Busnes-app/KyQuickStart -p kyquickstart-0.4.2-linux-amd64 -O "$RUNNER_TEMP/kyquickstart"
+          echo "3f8fdec3ba7d8a63ad8d1eb88e172137b33789c79f7c867360b26365ec463ea6  $RUNNER_TEMP/kyquickstart" | sha256sum -c
+          chmod +x "$RUNNER_TEMP/kyquickstart"
+      - run: KYQS_TEST_KYQUICKSTART=$RUNNER_TEMP/kyquickstart test/kube.sh

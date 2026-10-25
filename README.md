@@ -35,8 +35,9 @@ has completed suite admission yet, so the agent labels each one a test install. 
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; with it the dashboard opens beside the agent (`kyqs-ai` starts a tmux session when you are not in one).
 - **Where the apps run:** this computer, servers, Kubernetes clusters, or a mix. Servers and
   this computer need Linux with Docker Engine and the compose plugin already installed (Podman
-  is not supported); servers need a login that can use `sudo` (once, below). Clusters need a
-  kubeconfig and a persistent StorageClass. Nothing installs Docker or Kubernetes for you.
+  is not supported); servers need a login that can use `sudo` (once, below). Clusters need an
+  admin kubeconfig, `kubectl` on your computer (once, below) and a persistent StorageClass.
+  Nothing installs Docker or Kubernetes for you.
   x86-64 is what the suite targets. Which product runs where:
   [KyQuickStart docs/redirect.md](https://github.com/Busnes-app/KyQuickStart/blob/master/docs/redirect.md).
 - **A domain you control.** The apps need HTTPS hostnames (passkeys and sign-in require it).
@@ -127,22 +128,47 @@ sh prepare-host.sh <the base64 line>
 ## Kubernetes clusters
 
 ```sh
-./kyqs-ai add-cluster <name> <kubeconfig>     # target kube-<name>
-./kyqs-ai remove-cluster <name>               # stop offering it; the cluster is untouched
+./kyqs-ai add-cluster <name> <admin-kubeconfig>       # target kube-<name>
+./kyqs-ai revoke kube-<name> <admin-kubeconfig>       # delete the agent's ServiceAccount
+./kyqs-ai remove-cluster <name>                       # stop offering it; the cluster is untouched
 ```
 
-The kubeconfig must be readable only by you (mode 0600). The agent passes its path to
-`kyquickstart`, which talks to the cluster. Claude Code's hands-off settings deny reading the
-file; for other agents the prompt's ban is an instruction, not a barrier. Give it a kubeconfig for a dedicated ServiceAccount,
-not your cluster-admin one, with the permissions `kyquickstart preflight` checks (it names any
-that are missing; the list is KyQuickStart's `internal/kube/preflight.go`), plus `get` on
-`pods/log` for `logs`.
-Each app gets its own `kyq-<app>` namespace; kyquickstart never adopts an object it did not
-label. To remove access, delete or revoke that ServiceAccount's token in the cluster.
+`add-cluster` needs `kubectl` and your admin kubeconfig (its current context, mode 0600). It
+uses it once to create, in namespace `kyqs-ai`, a ServiceAccount `kyqs-ai-<name>` with a token
+Secret and a ClusterRole and binding of the same name. The agent and `kyquickstart` get only
+that ServiceAccount's kubeconfig, written to
+`~/.local/state/kyquickstart-ai/clusters/kube-<name>` (mode 0600); your admin kubeconfig is not
+recorded. The launcher refuses an admin kubeconfig that skips TLS verification. Re-running
+`add-cluster` is safe and repairs a half-finished setup.
+
+The ClusterRole holds exactly the permissions `kyquickstart preflight` checks (KyQuickStart's
+`internal/kube/preflight.go`), plus `get` on `pods/log` for `logs`, all cluster-wide:
+namespaces, pods, `pods/exec`, `pods/portforward`, Secrets, Services, PersistentVolumeClaims,
+Deployments, NetworkPolicies, listing StorageClasses, and Leases (cluster-wide because
+kyquickstart creates its lock namespace on the first apply). It cannot change RBAC, nodes or
+ServiceAccounts, delete namespaces or volumes, or list Secrets.
+
+**Be aware:** that is not cluster-admin, but it is close. Creating pods and reading Secrets in
+every namespace lets a misbehaving agent run a pod as any ServiceAccount, or read any Secret
+it can name, and so gain other accounts' rights. As with the docker group, the account is
+dedicated and removed when you finish. `kyquickstart handoff` to KyYard on a Kubernetes target
+creates RBAC objects, which this account cannot; the agent gives you that step.
+
+`revoke kube-<name>` deletes the binding, the ClusterRole, the token and the ServiceAccount;
+the API server stops accepting the token within seconds. Apps, their `kyq-<app>` namespaces
+and the `kyqs-ai` namespace stay. `hosts` then lists the cluster as revoked, and `add-cluster`
+gives the agent access again. `remove-cluster` warns if the ServiceAccount still exists.
+A cluster added by an earlier version recorded your own kubeconfig; `hosts` reports it as not
+ready until you run `add-cluster` again.
+
+Claude Code's hands-off settings deny reading the agent's kubeconfig; for other agents the
+prompt's ban is an instruction, not a barrier. Each app gets its own `kyq-<app>` namespace;
+kyquickstart never adopts an object it did not label.
 
 ## Letting the agent work without admin rights
 
-The agent never gets root or your password. `prepare-host.sh` creates a user `kyops` that:
+The agent never gets root, your password or your cluster-admin kubeconfig (clusters: above).
+On servers, `prepare-host.sh` creates a user `kyops` that:
 
 - logs in only with the KyQuickStart AI key (`restrict`: no forwarding, no terminal),
 - has no password and no `sudo`,
@@ -207,6 +233,9 @@ It gives you a command that stores it straight on the server:
 ./kyqs-ai put-secret kyq-<name> /srv/ky/<app>/secrets/<file>   # hidden input, stored 0600
 ```
 
+It strips leading and trailing spaces and blank lines from what you paste, stores the rest
+without a final newline, and refuses an empty secret. You can also pipe the value in.
+
 ## Secrets
 
 - The prompt has the agent generate secrets on the servers and move them by pipe, so the
@@ -233,7 +262,8 @@ It gives you a command that stores it straight on the server:
 ## Verification and readiness
 
 The launcher tests check launcher behavior, secret redaction, host-key handling, cluster
-registration and handover mechanics. The end-to-end harness uses disposable SSH
+registration and handover mechanics. `test/kube.sh` checks the cluster ServiceAccount's
+rights, re-runs and revoke on a real kind cluster, and runs `kyquickstart preflight` with it. The end-to-end harness uses disposable SSH
 infrastructure and a stub Docker command, agent and kyquickstart; it is **not a full
 Ky-product install or recovery test**. Product deployment, ownership, lifecycle and restore
 are tested in KyQuickStart (`make e2e`).
@@ -260,8 +290,9 @@ scope. Keep passwords and real recovery shares out of public reports and promo i
 
 ```sh
 shellcheck -x kyqs-ai bin/* test/*.sh
-test/unit.sh      # progress, dashboard, redact, handover
+test/unit.sh      # progress, dashboard, redact, handover, put-secret
 test/e2e.sh       # needs Docker: add-host, key pinning, put-secret, handover, revoke
+test/kube.sh      # needs kubectl and kind: the cluster ServiceAccount, its rights and revoke
 ```
 
 ## License

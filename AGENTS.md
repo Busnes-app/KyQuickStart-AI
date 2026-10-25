@@ -17,7 +17,7 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 
 - `PROMPT.md`: what the agent does and in what order; the feedback report format.
 - `kyqs-ai`: launcher. Targets (`add-local`, `add-host`, `add-cluster`, `remove-cluster`,
-  `revoke`), `put-secret`, run folders (`targets.tsv`, a copy of `kyquickstart`, `kyq/`),
+  `revoke`, including a cluster's ServiceAccount), `put-secret`, run folders (`targets.tsv`, a copy of `kyquickstart`, `kyq/`),
   agent launch per CLI, dashboard placement, handover after exit.
 - Updates (`self_update`, `kyq_update` in `kyqs-ai`): on a terminal, `start` and `resume` offer
   to fast-forward this checkout, and `start` offers the latest KyQuickStart release binary when
@@ -43,15 +43,26 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - Secret values never enter the agent's conversation: generated on servers, moved by pipe,
   supplied by the user through `put-secret`, resolved into the 0600 handover only by
   `bin/handover` after the agent exits. `handover.tsv` holds locations, never values.
+  `put-secret` keeps the value off argv and out of output, trims surrounding whitespace and
+  refuses an empty one.
 - The agent's server login `kyops` is key-only (`restrict`), passwordless, sudo-less, in the
   `docker` group, owner of `/srv/ky`. Docs must say docker group is root-equivalent.
   `revoke` removes access and never touches apps or `/srv/ky`; it leaves an empty
   `<state>/revoked/kyq-<name>` so `hosts` can say so, and `add-host` removes that file.
 - Install targets are `local` (this computer, no SSH, the agent runs as the user),
-  `kyq-<name>` servers and `kube-<name>` clusters (a 0600 kubeconfig path, recorded in
-  `<state>/clusters/`, usable only with kyquickstart; the agent never opens the file). The agent reaches every target through `bin/on`, so the prompt and
-  hands-off allow-list are the same for both. Local mode never touches `~/.ssh`; `KYQS_DATA`
-  exists only so tests can replace `/srv/ky`.
+  `kyq-<name>` servers and `kube-<name>` clusters, usable only with kyquickstart. The agent
+  reaches `local` and every server through `bin/on`, so the prompt and hands-off allow-list are
+  the same for both. Local mode never touches `~/.ssh`; `KYQS_DATA` exists only so tests can
+  replace `/srv/ky`.
+- A cluster's agent credential is the ServiceAccount `kyqs-ai/kyqs-ai-<name>`, which
+  `add-cluster` creates with the user's admin kubeconfig (never recorded) and `kubectl apply`
+  (idempotent). Its ClusterRole of the same name is exactly KyQuickStart's preflight
+  `required` list plus `get pods/log`, cluster-wide; it changes when that list does. Its
+  kubeconfig is `<state>/clusters/kube-<name>` (0600; the agent never opens it), written only
+  once the token works. Docs must say pod create plus Secret get everywhere can escalate.
+  `revoke kube-<name> <admin-kubeconfig>` deletes binding, role, token and ServiceAccount, in
+  that order, empties that file and leaves `<state>/revoked/kube-<name>`; `add-cluster`
+  removes it. Add-host names may not start with `kube-`.
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is
   refused. The fingerprint comes from the server over the admin's own login or from the user.
   `targets.tsv` hands that fingerprint to kyquickstart's `--trust-host-key`; kyquickstart pins
@@ -80,10 +91,14 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 
 - `shellcheck -x kyqs-ai bin/* test/*.sh`
 - `test/unit.sh`: progress, dashboard, redact, handover, the setup form (scripted keys).
+- `test/unit.sh` also covers put-secret's trimming and empty refusal.
 - `test/e2e.sh`: needs Docker; disposable sshd container with a stub `docker`: add-host,
-  pinning and tamper refusal, `--prepared`, add-cluster/remove-cluster with a stub
-  kyquickstart, put-secret, handover, guided start with a stub agent (targets.tsv, kyquickstart
-  copy and allow-list), a local-only start (no SSH), revoke and re-add.
+  pinning and tamper refusal, `--prepared`, add-cluster/revoke/remove-cluster with stub
+  kyquickstart and kubectl, put-secret, handover, guided start with a stub agent (targets.tsv,
+  kyquickstart copy and allow-list), a local-only start (no SSH), revoke and re-add.
+- `test/kube.sh`: needs kubectl and kind (or `KYQS_TEST_KUBECONFIG` for a disposable cluster):
+  the ServiceAccount's allowed and denied rights, re-run and repair, revoke and re-add;
+  with `KYQS_TEST_KYQUICKSTART`, a real `kyquickstart preflight`. CI's `kube` job runs it.
 
 ## Child DOX Index
 

@@ -13,14 +13,17 @@ repository root; line numbers are for v0.5.0.
 
 1. **The agent gets no more than an unprivileged, revocable login.** On a server it is `kyops`:
    key-only, no password, no `sudo`. It is in the `docker` group, which is root-equivalent, and
-   the docs say so. Your own admin login and password never reach it.
+   the docs say so. On a cluster it is the ServiceAccount `kyqs-ai-<name>`, bound to the
+   permissions `kyquickstart preflight` checks; pod create and Secret get in every namespace
+   can escalate, and the docs say so. Your own admin login, password and kubeconfig never
+   reach it.
 2. **It talks only to the servers you registered.** A host key is pinned once, after a check,
    and a changed key is refused.
 3. **Secret values stay out of the agent's conversation**, and so out of your model provider's
    logs, *as far as the agent follows the prompt*. Mechanisms make that the easy path; nothing
    forces it (see Residual risk).
-4. **Access ends when you say so.** `revoke` removes the agent's key and Docker access and
-   leaves apps and data alone.
+4. **Access ends when you say so.** `revoke` removes the agent's key and Docker access, or a
+   cluster's ServiceAccount and its rights, and leaves apps and data alone.
 5. **What runs is what was released.** The `kyquickstart` binary it installs must match
    GitHub's published digest and, with `gh`, a build attestation from KyQuickStart.
 
@@ -49,8 +52,10 @@ kubeconfigs), and a server that is already compromised.
    `kyops`' key line carries `restrict` (no forwarding, no terminal) and the account is locked to
    key-only use (`bin/prepare-host.sh`).
 3. **`kyquickstart` → servers and clusters.** Each run gets its own ssh-agent holding only the
-   KyQuickStart AI key, stopped on exit (lines 336-343). Kubeconfigs are passed by path; the
-   launcher refuses one that others can read (lines 109, 267).
+   KyQuickStart AI key, stopped on exit (lines 336-343). Kubeconfigs are passed by path. The
+   one in `targets.tsv` is the ServiceAccount's that `add-cluster` wrote (0600, `kube_grant`,
+   `add_cluster`); your admin kubeconfig is used once to create it, must be private, and is
+   not recorded.
 4. **The agent ↔ this computer.** In `local` mode the agent runs as you. The only separation is the
    agent CLI's own permission mode: supervised (asks per command) or hands-off (below).
 5. **The agent → secrets.** Secrets live in 0600 files on targets; you add yours with `put-secret`,
@@ -106,7 +111,8 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 | Secrets in files others can read | `umask 077` for the run folder, secrets and the handover; kubeconfigs must be private | `kyqs-ai` line 582, `bin/handover`, `put_secret` |
 | Secrets in logs the agent reads | `bin/redact` masks password/secret/token/key assignments, bearer and basic credentials and six-digit codes on lines that mention a pairing code; a backstop, not a guarantee | `bin/redact`, `test/unit.sh` |
 | Tampered `kyquickstart` download | SHA-256 against GitHub's published asset digest; with `gh`, `gh attestation verify --repo Busnes-app/KyQuickStart` | `kyqs-ai` `kyq_update` |
-| Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership and expires the account | `bin/revoke-host.sh`, `test/e2e.sh` |
+| Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership and expires the account; `revoke kube-<name>` deletes the ServiceAccount, its token and its ClusterRole and binding | `bin/revoke-host.sh`, `revoke_cluster`, `test/e2e.sh`, `test/kube.sh` |
+| Cluster-admin handed to the agent | The agent's kubeconfig is a ServiceAccount with the preflight list and `pods/log`; denied RBAC, nodes, ServiceAccounts, namespace and volume delete, Secret list | `kube_grant`, `test/kube.sh` |
 
 ## Residual risk
 
@@ -117,6 +123,8 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 - **Prompt injection.** The agent reads third-party READMEs and web pages and then runs commands.
   Nothing filters that text.
 - **Docker group = root** on every server where `kyops` exists, until `revoke`.
+- **The cluster ServiceAccount can escalate.** Creating pods and reading Secrets in every
+  namespace lets it act as other ServiceAccounts, until `revoke kube-<name>`.
 - **The kyquickstart attestation check is not pinned to a workflow or tag.** `kyq_update` passes
   `--repo` only, so an attestation from any KyQuickStart workflow on any ref is accepted; without
   `gh`, only the digest from the same GitHub API that served the URL is checked. KyQuickStart's
@@ -134,8 +142,10 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
   (traversal refused, 0600), `bin/on`, the setup form. `test/e2e.sh` (Linux, Docker): a
   disposable sshd container for add-host, pinning, tamper refusal, `--prepared`, put-secret,
   clusters, a guided start with a stub agent (allow-list and denied kubeconfig), local mode,
-  revoke and re-add. They use stub Docker, agent and `kyquickstart` commands; `kyq_update` and
-  `self_update` have no tests.
+  revoke and re-add. They use stub Docker, agent, `kubectl` and `kyquickstart` commands.
+  `test/kube.sh` (CI's `kube` job, kind) checks the cluster ServiceAccount's allowed and denied
+  rights, re-runs, revoke, and a real `kyquickstart preflight`. `kyq_update` and `self_update`
+  have no tests.
 - **Review:** the `main: green checks` ruleset requires a pull request into `master` with the
   `linux` check green; repository administrators can bypass it.
 

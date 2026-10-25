@@ -110,10 +110,22 @@ out=$(echo y | kyqs add-host --prepared alt "$ip" "$port" 2>&1) || fail "add-hos
 [ "$(ssh kyq-alt id -un)" = kyops ] || fail "kyq-alt does not log in"
 ok "add-host --prepared pins only after the user confirms the fingerprint"
 
-# Kubernetes targets go through kyquickstart and a private kubeconfig the agent never opens.
+# Kubernetes targets go through kyquickstart and a ServiceAccount kubeconfig the agent never
+# opens. kubectl is a stub here; test/kube.sh checks the ServiceAccount on a real cluster.
+cat >"$work/bin/kubectl" <<'EOF2'
+#!/bin/sh
+case "$*" in
+*"config view"*server}) echo https://192.0.2.1:6443 ;;
+*" apply -f -"*) cat >/dev/null ;;
+*"jsonpath={.data.token}"*) printf '%s' "${STUB_TOKEN:-c3R1Yi5zdHViLnRva2Vu}" ;; # stub.stub.token
+*"auth can-i"*) echo "$*" >>"${STUB_CANI:-/dev/null}" ;;
+esac
+EOF2
+chmod +x "$work/bin/kubectl"
 kc=$work/kubeconfig
 printf 'apiVersion: v1\nkind: Config\n' >"$kc"
 chmod 600 "$kc"
+agentkc=$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-lab
 out=$(KYQS_KYQUICKSTART='' kyqs add-cluster lab "$kc" 2>&1) && fail "add-cluster without kyquickstart"
 grep -q 'need the kyquickstart binary' <<<"$out" || fail "wrong refusal: $out"
 printf '#!/bin/sh\necho 0.0.0-stub\n' >"$work/kyquickstart"
@@ -124,7 +136,22 @@ kyqs add-cluster lab "$kc" >/dev/null 2>&1 && fail "accepted a group-readable ku
 chmod 600 "$kc"
 kyqs add-cluster lab "$kc" >/dev/null || fail "add-cluster"
 kyqs hosts | grep -q '✔ kube-lab' || fail "kube-lab not ready: $(kyqs hosts)"
-ok "add-cluster needs kyquickstart and a private kubeconfig"
+[ "$(stat -c %a "$agentkc")" = 600 ] || fail "agent kubeconfig not 0600"
+grep -qx '    token: stub.stub.token' "$agentkc" || fail "agent kubeconfig lacks the ServiceAccount token"
+grep -qx '    server: https://192.0.2.1:6443' "$agentkc" || fail "agent kubeconfig lacks the server"
+ok "add-cluster needs kyquickstart and a private kubeconfig, and writes a ServiceAccount kubeconfig"
+# A Secret rewritten in the cluster must not add keys (an exec plugin) to the agent's kubeconfig.
+evil=$(printf 'a.b.c\n    exec: {command: /bin/touch, args: [%s/pwned], apiVersion: client.authentication.k8s.io/v1}\n' "$work" | base64 -w0)
+out=$(STUB_TOKEN=$evil STUB_CANI=$work/cani kyqs add-cluster evil "$kc" 2>&1) && fail "accepted a multiline token"
+grep -q 'is not a JWT' <<<"$out" || fail "wrong refusal: $out"
+for f in "$work/cani" "$XDG_STATE_HOME"/kyquickstart-ai/clusters/kube-evil{,.tmp}; do
+	[ ! -e "$f" ] || fail "a malformed token reached kubectl or the state: $f"
+done
+ok "add-cluster refuses a token that is not a plain JWT before kubectl reads it"
+printf '%s\n' "$kc" >"$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
+kyqs hosts | grep -qF 'kube-old: added by an older kyqs-ai with your own kubeconfig' || fail "legacy cluster not reported: $(kyqs hosts)"
+rm "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
+ok "a cluster registered with the user's own kubeconfig is not handed to the agent"
 
 # The guided start with a stub agent: it reads the prompt, records a secret location, exits.
 cat >"$work/bin/claude" <<'EOF2'
@@ -155,22 +182,29 @@ grep -qx kube-lab "$run/hosts.txt" || fail "cluster missing from hosts.txt"
 fp=$(ssh-keygen -lF kyq-core -f "$HOME/.ssh/kyquickstart-ai/known_hosts" | awk '!/^#/ {print $3}')
 grep -qxF "$(printf 'kyq-core\tssh\t%s\t%s\tkyops\t%s\t-' "$ip" "$port" "$fp")" "$run/targets.tsv" ||
 	fail "server facts wrong: $(cat "$run/targets.tsv")"
-grep -qxF "$(printf 'kube-lab\tkubernetes\t-\t-\t-\t-\t%s' "$kc")" "$run/targets.tsv" || fail "cluster facts wrong"
+grep -qxF "$(printf 'kube-lab\tkubernetes\t-\t-\t-\t-\t%s' "$agentkc")" "$run/targets.tsv" || fail "cluster facts wrong"
 grep -q kubernetes "$run/kickoff.txt" && fail "kickoff should not carry target details"
 cmp -s "$work/kyquickstart" "$run/bin/kyquickstart" || fail "run has no copy of kyquickstart"
 [ -d "$run/kyq" ] || fail "no kyquickstart state folder"
 grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
 grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"
-grep -qF "\"Read(/$kc)\"" "$run/.claude/settings.json" || fail "kubeconfig not denied to Read: $(cat "$run/.claude/settings.json")"
+grep -qF "\"Read(/$agentkc)\"" "$run/.claude/settings.json" || fail "kubeconfig not denied to Read: $(cat "$run/.claude/settings.json")"
 agentfp=$(ssh-keygen -lf "$HOME/.ssh/kyquickstart-ai/id_ed25519.pub" | awk '{print $2}')
 if [ "$(wc -l <"$run/agentkeys.txt")" -ne 1 ] || ! grep -qF "$agentfp" "$run/agentkeys.txt"; then
 	fail "the run's ssh-agent should hold the agent key alone: $(cat "$run/agentkeys.txt")"
 fi
 ok "the run gets kyquickstart, its state folder, its own one-key ssh-agent, a denied kubeconfig and each target's facts"
-kyqs remove-cluster lab >/dev/null
+kyqs revoke kube-lab "$kc" >/dev/null || fail "revoke kube-lab"
+grep -q token "$agentkc" && fail "revoke left the token on disk"
+kyqs hosts | grep -qF 'kube-lab: access revoked' || fail "hosts does not say kube-lab was revoked: $(kyqs hosts)"
+kyqs add-cluster lab "$kc" >/dev/null || fail "add-cluster after revoke"
+kyqs hosts | grep -q '✔ kube-lab' || fail "kube-lab not restored: $(kyqs hosts)"
+ok "revoke kube-lab marks it revoked and drops the token; add-cluster restores it"
+out=$(kyqs remove-cluster lab)
+grep -q 'revoke kube-lab' <<<"$out" || fail "remove-cluster did not warn that the ServiceAccount still works: $out"
 kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
 [ -f "$kc" ] || fail "remove-cluster touched the kubeconfig"
-ok "remove-cluster forgets the target and leaves the kubeconfig"
+ok "remove-cluster forgets the target, warns about a live ServiceAccount and leaves the admin kubeconfig"
 
 # Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.
 (
