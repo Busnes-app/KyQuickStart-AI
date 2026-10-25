@@ -1,46 +1,57 @@
-# Contributing
+# Contributing to KyQuickStart AI
 
-[Overview](README.md) · [Assurance case](docs/ASSURANCE-CASE.md) · [Verifying releases](docs/VERIFYING-RELEASES.md)
+KyQuickStart AI is the prompt-driven installer: a local AI agent plans, converses, and diagnoses while KyQuickStart performs the validated, deterministic operations. Contributions must keep the AI agent out of the trust path — it proposes, but never holds final authority, credentials, or unvalidated execution.
 
-## Reporting
+## Before contributing
 
-- **Bugs, run findings and requests:** open a GitHub issue. Attach the relevant part of the run's
-  `feedback.md` or `progress.log`, with domains, addresses and names replaced by placeholders.
-  Never attach `handover.txt` or anything from `/srv/ky/*/secrets`.
-- **Vulnerabilities:** report privately, not in an issue. The
-  [Busnes-app security policy](https://github.com/Busnes-app/.github/blob/main/SECURITY.md)
-  covers this repository and gives the response times.
+Read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md),
+the [README](README.md), and any AGENTS.md in the subtree you are about to
+touch. Open an issue before proposing a feature larger than a bug fix or
+documentation change.
 
-## Changing the code
+Keep changes small, reuse existing code, and fix the shared root cause rather
+than the reported symptom. New non-trivial logic ships with a runnable test or
+self-check.
 
-1. Read [AGENTS.md](AGENTS.md). It is the binding contract for this repository; a change to a
-   contract, the allow-list or a durable workflow updates it in the same pull request, and a
-   change to a trust boundary updates [docs/ASSURANCE-CASE.md](docs/ASSURANCE-CASE.md).
-2. Open a pull request against `master`. The `main: green checks` ruleset requires one, with the
-   `linux` CI job green. The `macos` job runs too; keep both green.
-3. Run the checks below before you push. `test/e2e.sh` needs Docker and `test/kube.sh` kind
-   and kubectl; CI runs both.
-4. To release, add the `CHANGELOG.md` section, merge, and publish the GitHub release `vX.Y.Z` on
-   `master` ([AGENTS.md](AGENTS.md), Ownership).
+## Security requirements
 
-### Tests
+- The AI agent proposes; KyQuickStart validates and executes. Never let agent output bypass KyQuickStart's validation, ownership, or credential handling.
+- SSH keys, tokens, and generated secrets are handled by the deterministic layer; the agent transcript must not capture, log, or transmit them.
+- Treat model prompts and responses as untrusted input; validate before acting.
+- It never installs Docker or Kubernetes and connects only to operator-provided targets.
+- Do not add telemetry, phone-home, analytics, or unconfigured third-party
+  services.
+- Do not add silent security fallbacks; fail closed with a readable error and a
+  remediation step.
+- Name and document any security trade-off in [SECURITY.md](SECURITY.md) before
+  it merges.
 
-New behaviour and every bug fix come with a test in `test/unit.sh`, `test/e2e.sh` or, for
-cluster access, `test/kube.sh` that fails without the change. A security-relevant path (host keys, secret paths, access, downloads) gets a
-test of the refusal, not only of the success.
+## Verification
 
-### Coding standard
+Run the checks that apply to the files you changed, and the repository's
+full required checks before hand-off. Record the exact commands and their
+results in the pull request.
 
-Contributions follow these rules. CI enforces the parts a tool can check, so a failure is a red
-build, not a review comment.
+## AI attribution
 
-| Code | Standard | Enforced by |
-|---|---|---|
-| `kyqs-ai`, `bin/*`, `test/*.sh` | Clean under [ShellCheck](https://www.shellcheck.net/) with `-x`; a `# shellcheck disable=` names its reason on the same line | `shellcheck -x kyqs-ai bin/* test/*.sh` in the `linux` job |
-| `kyqs-ai` and the bash helpers | bash 3.2 compatible (macOS): no associative arrays, negative indexes or `mapfile`; BSD and GNU tools both | `macos` job: `test/unit.sh`, `bash -n kyqs-ai` and `./kyqs-ai help` |
-| `bin/prepare-host.sh`, `bin/revoke-host.sh` (run as root) | POSIX `sh`, `set -eu` | shellcheck reads their `#!/bin/sh` and checks them as POSIX sh |
-| Commands sent through someone's login shell | base64 only, so fish, zsh or bash cannot reinterpret them | Review; `test/e2e.sh` runs `add-host` and `revoke` through them |
+AI-assisted contributions are welcome; undisclosed ones are not. Disclose
+material AI assistance in the pull request — the tool, what it changed, and what
+you personally ran, read, and verified — and add a commit trailer naming any
+tool that materially contributed. You are the author of the code you submit for
+every purpose, regardless of how it was produced.
 
-Beyond what the tools check: validate every value at the edge (names, addresses, paths) with an
-allow-list regex as `kyqs-ai` does, quote every expansion, and keep to the comment density and
-naming of the file you are editing.
+## Pull requests
+
+Branch off `main` with a focused name, and use a Conventional Commit subject
+(`fix:`, `feat:`, `docs:`, `refactor:`, `test:`, or `chore:`). The pull request
+explains why the change exists, the verification performed, the security impact,
+and any known limitations.
+
+Every pull request gets an adversarial review pass; see
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md#hostile-reviews-are-about-code-never-people)
+for what that is and the boundary it keeps.
+
+## Licence
+
+KyQuickStart AI is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt).
+
