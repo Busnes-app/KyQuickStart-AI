@@ -18,14 +18,15 @@
    change to a trust boundary updates [docs/ASSURANCE-CASE.md](docs/ASSURANCE-CASE.md).
 2. Open a pull request against `master`. The `main: green checks` ruleset requires one, with the
    `linux` CI job green. The `macos` job runs too; keep both green.
-3. Run the checks below before you push. `test/e2e.sh` needs Docker; CI runs it.
+3. Run the checks below before you push. `test/e2e.sh` needs Docker and `test/kube.sh` kind
+   and kubectl; CI runs both.
 4. To release, add the `CHANGELOG.md` section, merge, and publish the GitHub release `vX.Y.Z` on
    `master` ([AGENTS.md](AGENTS.md), Ownership).
 
 ### Tests
 
-New behaviour and every bug fix come with a test in `test/unit.sh` or `test/e2e.sh` that fails
-without the change. A security-relevant path (host keys, secret paths, access, downloads) gets a
+New behaviour and every bug fix come with a test in `test/unit.sh`, `test/e2e.sh` or, for
+cluster access, `test/kube.sh` that fails without the change. A security-relevant path (host keys, secret paths, access, downloads) gets a
 test of the refusal, not only of the success.
 
 ### Coding standard

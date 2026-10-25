@@ -12,7 +12,7 @@ STATE=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai
 RUNS=$STATE/runs
 LOCAL=$STATE/local-host # present when this computer is an install target
 REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
-CLUSTERS=$STATE/clusters # one file per kube-<name>, holding its kubeconfig's path
+CLUSTERS=$STATE/clusters # one file per kube-<name>: the agent's ServiceAccount kubeconfig
 KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || true)} # set but empty: none
 DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
 AGENTS=(claude codex gemini opencode)
@@ -38,8 +38,9 @@ usage: kyqs-ai [command]
   add-host [--prepared] <name> <address> [port] [admin-user]
                                  Prepare a server and pin its host key as ssh alias kyq-<name>.
                                  --prepared: you already ran bin/prepare-host.sh at its console
-  add-cluster <name> <kubeconfig>
-                                 Use a Kubernetes cluster as target kube-<name> (needs kyquickstart)
+  add-cluster <name> <admin-kubeconfig>
+                                 Use a Kubernetes cluster as target kube-<name> (needs kyquickstart
+                                 and kubectl): creates the agent's ServiceAccount with your kubeconfig
   remove-cluster <name>          Stop offering kube-<name>; the cluster and its apps are untouched
   hosts                          List install targets and check each one answers
   ssh-key                        Print the agent's public key as one base64 line, for running
@@ -51,6 +52,8 @@ usage: kyqs-ai [command]
   handover [run-dir]             Rebuild the printable handover sheet
   revoke <name> [admin-user]     Remove the agent's access to a server when you are done
                                  (revoke local: stop using this computer as a target)
+  revoke kube-<name> <admin-kubeconfig>
+                                 Delete the agent's ServiceAccount in that cluster
 EOF
 }
 
@@ -135,12 +138,14 @@ target_problem() { # <target>: why the agent cannot use it, or nothing
 		docker_problem
 		[ -w "$DATA" ] || echo "$DATA is missing or not writable by you; run kyqs-ai add-local"
 	elif [[ $1 == kube-* ]]; then
-		local kc
-		kc=$(cat "$CLUSTERS/$1")
-		if [ -z "$KYQ_BIN" ]; then
+		if [ -f "$REVOKED/$1" ]; then
+			echo "access revoked with kyqs-ai revoke; restore it with kyqs-ai add-cluster ${1#kube-} <admin-kubeconfig>"
+		elif [ -z "$KYQ_BIN" ]; then
 			echo "Kubernetes targets need the kyquickstart binary: put it on PATH or set KYQS_KYQUICKSTART"
-		elif ! private_file "$kc"; then
-			echo "kubeconfig $kc is missing or readable by other users (chmod 600 it)"
+		elif ! grep -q '^kind: Config' "$CLUSTERS/$1"; then
+			echo "added by an older kyqs-ai with your own kubeconfig; re-run kyqs-ai add-cluster ${1#kube-} <admin-kubeconfig>"
+		elif ! private_file "$CLUSTERS/$1"; then
+			echo "$CLUSTERS/$1 is readable by other users (chmod 600 it)"
 		fi
 	elif [ -f "$REVOKED/$1" ]; then
 		echo "access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host ${1#kyq-} $(ssh -G "$1" | awk '$1 == "hostname" {print $2}')"
@@ -195,6 +200,7 @@ add_host() {
 	local name=$1 addr=$2 port=${3:-22} admin=${4:-$USER}
 	local alias=kyq-$name
 	[[ $name =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes"
+	[[ $name != kube-* ]] || die "name: kube- names Kubernetes targets; choose another"
 	[[ $addr =~ ^[A-Za-z0-9.:-]+$ ]] || die "address: hostname or IP"
 	[[ $port =~ ^[0-9]{1,5}$ ]] || die "port: a number"
 	[[ $admin =~ ^[A-Za-z0-9._-]+$ ]] || die "admin-user: a login name"
@@ -256,26 +262,117 @@ add_host() {
 	say "ready: ssh $alias"
 }
 
+# The agent's ServiceAccount: what kyquickstart preflight checks (KyQuickStart
+# internal/kube/preflight.go, `required`), plus get pods/log for `logs`. Leases are cluster-wide
+# because kyquickstart creates its lock namespace on the first apply.
+KUBE_NS=kyqs-ai
+kube_grant() { # <name>
+	cat <<EOF
+apiVersion: v1
+kind: Namespace
+metadata: {name: $KUBE_NS}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: $1, namespace: $KUBE_NS}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: $1
+  namespace: $KUBE_NS
+  annotations: {kubernetes.io/service-account.name: $1}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: $1}
+rules:
+- {apiGroups: [""], resources: [namespaces], verbs: [get, create, update, patch]}
+- {apiGroups: [""], resources: [pods], verbs: [get, list, create, delete]}
+- {apiGroups: [""], resources: [pods/exec, pods/portforward], verbs: [create]}
+- {apiGroups: [""], resources: [pods/log], verbs: [get]}
+- {apiGroups: [""], resources: [secrets], verbs: [get, create, update, patch]}
+- {apiGroups: [""], resources: [services], verbs: [get, list, create, update, patch, delete]}
+- {apiGroups: [""], resources: [persistentvolumeclaims], verbs: [get, create, patch]}
+- {apiGroups: [apps], resources: [deployments], verbs: [get, create, update, patch, delete]}
+- {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, create, update, patch]}
+- {apiGroups: [storage.k8s.io], resources: [storageclasses], verbs: [list]}
+- {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, create, delete]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: $1}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: $1}
+subjects: [{kind: ServiceAccount, name: $1, namespace: $KUBE_NS}]
+EOF
+}
+
 add_cluster() {
-	[ $# = 2 ] || die "usage: kyqs-ai add-cluster <name> <kubeconfig>"
+	[ $# = 2 ] || die "usage: kyqs-ai add-cluster <name> <admin-kubeconfig>"
 	[[ $1 =~ ^[a-z][a-z0-9-]{0,25}$ ]] || die "name: a lowercase letter, then letters, digits and dashes"
 	[ -n "$KYQ_BIN" ] || die "Kubernetes targets need the kyquickstart binary: put it on PATH or set KYQS_KYQUICKSTART"
-	[ -f "$2" ] || die "$2 is not a file"
-	local kc
-	kc=$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")
-	[[ $kc =~ ^/[A-Za-z0-9._/-]+$ ]] || die "kubeconfig path: letters, digits and . _ / - only"
-	private_file "$kc" || die "$kc is readable by other users; chmod 600 it first"
+	need kubectl base64
+	private_file "$2" || die "$2 is not a file only you can read; chmod 600 it first"
+	local sa=kyqs-ai-$1 kc=$CLUSTERS/kube-$1 admin=$2 token='' ca server sni
+	[[ $kc =~ ^/[A-Za-z0-9._/-]+$ ]] || die "state path $kc: letters, digits and . _ / - only"
+	k() { kubectl --kubeconfig "$admin" "$@"; }
+	field() { k config view --minify --raw --flatten -o "jsonpath={.clusters[0].cluster.$1}"; }
+	[ "$(field insecure-skip-tls-verify)" != true ] || die "$admin skips TLS verification; the agent's kubeconfig would too"
+	server=$(field server)
+	ca=$(field certificate-authority-data)
+	sni=$(field tls-server-name)
+	say "Creating ServiceAccount $KUBE_NS/$sa with the permissions kyquickstart checks (README)."
+	kube_grant "$sa" | k apply -f - >/dev/null || die "creating it failed (above). Fix it and re-run; it is safe to repeat."
+	for _ in $(seq 30); do
+		token=$(k -n "$KUBE_NS" get secret "$sa" -o 'jsonpath={.data.token}' 2>/dev/null) || true
+		[ -z "$token" ] || break
+		sleep 1
+	done
+	[ -n "$token" ] || die "the cluster issued no token for $sa; is its token controller running? Re-run when it is."
+	umask 077
 	mkdir -p "$CLUSTERS"
-	printf '%s\n' "$kc" >"$CLUSTERS/kube-$1"
-	say "ready: kube-$1. kyquickstart reads $kc; the agent is told never to open it."
-	say "Prefer a kubeconfig for a dedicated ServiceAccount over your cluster-admin one (README)."
+	{
+		printf 'apiVersion: v1\nkind: Config\nclusters:\n- name: kube-%s\n  cluster:\n    server: %s\n' "$1" "$server"
+		[ -z "$ca" ] || printf '    certificate-authority-data: %s\n' "$ca"
+		[ -z "$sni" ] || printf '    tls-server-name: %s\n' "$sni"
+		printf 'users:\n- name: %s\n  user:\n    token: %s\n' "$sa" "$(base64 -d <<<"$token")"
+		printf 'contexts:\n- name: kube-%s\n  context: {cluster: kube-%s, user: %s}\ncurrent-context: kube-%s\n' "$1" "$1" "$sa" "$1"
+	} >"$kc.tmp"
+	kubectl --kubeconfig "$kc.tmp" auth can-i create deployments.apps -A >/dev/null 2>&1 || {
+		rm -f "$kc.tmp"
+		die "the new ServiceAccount kubeconfig cannot reach $server; nothing registered"
+	}
+	# Only now does the cluster become a target: a half-finished setup leaves none behind.
+	mv "$kc.tmp" "$kc"
+	rm -f "$REVOKED/kube-$1"
+	say "ready: kube-$1. kyquickstart uses $kc (ServiceAccount $sa, not cluster-admin, but able to"
+	say "create pods and read Secrets in every namespace: README). Remove it with kyqs-ai revoke kube-$1 <admin-kubeconfig>."
 }
 
 remove_cluster() {
 	if [ $# != 1 ] || [ ! -f "$CLUSTERS/kube-$1" ]; then die "usage: kyqs-ai remove-cluster <name> (an added cluster)"; fi
-	rm -f "$CLUSTERS/kube-$1"
-	say "kube-$1 is no longer a target. Its apps and the kubeconfig are untouched; revoke that"
-	say "kubeconfig's credentials in the cluster to remove the access itself."
+	[ -f "$REVOKED/kube-$1" ] || say "Its ServiceAccount still works; delete it with: kyqs-ai revoke kube-$1 <admin-kubeconfig>"
+	rm -f "$CLUSTERS/kube-$1" "$REVOKED/kube-$1"
+	say "kube-$1 is no longer a target. The cluster and its apps are untouched."
+}
+
+revoke_cluster() { # <kube-name> <admin-kubeconfig>
+	[ $# = 2 ] || die "usage: kyqs-ai revoke kube-<name> <admin-kubeconfig>"
+	[[ $1 =~ ^kube-[a-z][a-z0-9-]{0,25}$ ]] || die "unknown cluster $1"
+	need kubectl
+	local sa=kyqs-ai-${1#kube-}
+	# The binding first, so a revoke that dies halfway has already removed the rights.
+	if ! kubectl --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
+		! kubectl --kubeconfig "$2" -n "$KUBE_NS" delete --ignore-not-found "secret/$sa" "serviceaccount/$sa" >/dev/null; then
+		die "revoking failed (above). Fix it and re-run; it is safe to repeat."
+	fi
+	mkdir -p "$REVOKED"
+	: >"$REVOKED/$1"
+	[ ! -f "$CLUSTERS/$1" ] || : >"$CLUSTERS/$1" # keep the target listed, without the dead token
+	say "revoked: ServiceAccount $KUBE_NS/$sa and its token are gone. Apps are untouched."
+	say "To give the agent access again: kyqs-ai add-cluster ${1#kube-} <admin-kubeconfig>"
 }
 
 # One line per ready target for the agent's kyquickstart plan: no secrets, only where and how.
@@ -285,7 +382,7 @@ target_facts() {
 	for t; do
 		case $t in
 		local) printf 'local\tlocal\t-\t-\t-\t-\t-\n' ;;
-		kube-*) printf '%s\tkubernetes\t-\t-\t-\t-\t%s\n' "$t" "$(cat "$CLUSTERS/$t")" ;;
+		kube-*) printf '%s\tkubernetes\t-\t-\t-\t-\t%s\n' "$t" "$CLUSTERS/$t" ;;
 		*) printf '%s\tssh\t%s\t%s\tkyops\t%s\t-\n' "$t" "$(ssh -G "$t" | awk '$1 == "hostname" {print $2}')" \
 			"$(ssh -G "$t" | awk '$1 == "port" {print $2}')" \
 			"$(ssh-keygen -lF "$t" -f "$SSHD/known_hosts" | awk '!/^#/ {print $3; exit}')" ;;
@@ -315,11 +412,14 @@ put_secret() {
 	if [ -t 0 ]; then
 		read -r -s -p "Paste the secret (hidden), then Enter: " v
 		echo
-		[ -n "$v" ] || die "empty secret"
-		printf '%s\n' "$v"
 	else
-		cat
-	fi | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && cat > '$2'"
+		v=$(cat)
+	fi
+	# A pasted blank line or trailing newline would become part of the token.
+	v=${v#"${v%%[![:space:]]*}"}
+	v=${v%"${v##*[![:space:]]}"}
+	[ -n "$v" ] || die "empty secret; nothing stored"
+	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
 }
 
@@ -350,7 +450,7 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
 		if [ "$hands" = yes ]; then
 			# Kubeconfig paths are validated to [A-Za-z0-9._/-], so they need no JSON escaping.
 			for t in $(grep '^kube-' "$run/hosts.txt" || true); do
-				deny="$deny${deny:+, }\"Read(/$(cat "$CLUSTERS/$t"))\""
+				deny="$deny${deny:+, }\"Read(/$CLUSTERS/$t)\""
 			done
 			mkdir -p "$run/.claude"
 			cat >"$run/.claude/settings.json" <<EOF
@@ -411,7 +511,7 @@ finish() {
 	fi
 	[ -f "$run/feedback.md" ] && say "Feedback report: $run/feedback.md"
 	[ -f "$run/install-guide-draft.md" ] && say "Install guide draft: $run/install-guide-draft.md"
-	say "When everything is done, remove the agent's server access: kyqs-ai revoke <name>"
+	say "When everything is done, remove the agent's access: kyqs-ai revoke <name> (a cluster: revoke kube-<name> <admin-kubeconfig>)"
 }
 
 pick_agent() {
@@ -555,7 +655,7 @@ start() {
 	fi
 	say "Remote servers are reached over SSH as kyops: no sudo, no password, but in the docker group,"
 	say "which is root-equivalent on that server. Remove it when done with kyqs-ai revoke <name>."
-	say "Kubernetes clusters are added with kyqs-ai add-cluster <name> <kubeconfig> before the start."
+	say "Kubernetes clusters are added with kyqs-ai add-cluster <name> <admin-kubeconfig> before the start."
 	while confirm "Add a remote server?"; do
 		local n a p u
 		read -r -p "  short name (e.g. core, nas): " n
@@ -617,6 +717,10 @@ resume() {
 
 revoke() {
 	[ $# -ge 1 ] || die "usage: kyqs-ai revoke <name> [admin-user]"
+	[[ $1 != kube-* ]] || {
+		revoke_cluster "$@"
+		return
+	}
 	if [ "$1" = local ]; then
 		rm -f "$LOCAL"
 		say "This computer is no longer an install target. Apps and $DATA are untouched; nothing else to revoke,"

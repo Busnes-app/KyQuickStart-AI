@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local helpers: progress, dashboard, redact, handover (local secrets). No network, no Docker.
+# Local helpers: progress, dashboard, redact, handover (local secrets), put-secret. No network, no Docker.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -99,5 +99,19 @@ done
 grep -q kyyard "$y" && fail "interview: KyYard selected without a release kyquickstart"
 printf 'lab.example.com\n\nq' | "$ROOT/bin/interview" "$f" >/dev/null && fail "interview: q did not quit"
 ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; q quits"
+
+data=$work/srv-ky
+mkdir -p "$data"
+put() { KYQS_DATA=$data HOME=$work XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret local "$@"; }
+out=$(printf '\n  tok-3n9 x\t\n\n' | put "$data/app/token" 2>&1) || fail "put-secret: $out"
+[ "$(cat "$data/app/token"; echo .)" = 'tok-3n9 x.' ] || fail "put-secret kept surrounding whitespace: $(od -c "$data/app/token")"
+# shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
+[ "$(ls -l "$data/app/token" | cut -c1-10)" = -rw------- ] || fail "put-secret file not 0600"
+grep -q tok-3n9 <<<"$out" && fail "put-secret echoed the secret"
+for blank in '' $'\n \t\n'; do
+	printf '%s' "$blank" | put "$data/app/empty" >/dev/null 2>&1 && fail "put-secret accepted a blank secret"
+	[ ! -e "$data/app/empty" ] || fail "a refused blank secret left a file"
+done
+ok "put-secret trims surrounding whitespace, stores 0600, never echoes, refuses a blank secret"
 
 echo "unit: all passed"
