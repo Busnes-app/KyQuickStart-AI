@@ -144,8 +144,9 @@ ok "add-cluster needs kyquickstart and a private kubeconfig, and writes a Servic
 evil=$(printf 'a.b.c\n    exec: {command: /bin/touch, args: [%s/pwned], apiVersion: client.authentication.k8s.io/v1}\n' "$work" | base64 -w0)
 out=$(STUB_TOKEN=$evil STUB_CANI=$work/cani kyqs add-cluster evil "$kc" 2>&1) && fail "accepted a multiline token"
 grep -q 'is not a JWT' <<<"$out" || fail "wrong refusal: $out"
-[ ! -e "$work/cani" ] && [ ! -e "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-evil" ] && [ ! -e "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-evil.tmp" ] ||
-	fail "a malformed token reached kubectl or the state"
+for f in "$work/cani" "$XDG_STATE_HOME"/kyquickstart-ai/clusters/kube-evil{,.tmp}; do
+	[ ! -e "$f" ] || fail "a malformed token reached kubectl or the state: $f"
+done
 ok "add-cluster refuses a token that is not a plain JWT before kubectl reads it"
 printf '%s\n' "$kc" >"$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 kyqs hosts | grep -qF 'kube-old: added by an older kyqs-ai with your own kubeconfig' || fail "legacy cluster not reported: $(kyqs hosts)"
