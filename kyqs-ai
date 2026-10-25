@@ -331,13 +331,20 @@ add_cluster() {
 		sleep 1
 	done
 	[ -n "$token" ] || die "the cluster issued no token for $sa; is its token controller running? Re-run when it is."
+	# Each value lands in YAML unquoted: anything beyond its plain shape could add keys, such
+	# as an exec credential plugin from a Secret someone in the cluster rewrote.
+	token=$(base64 -d <<<"$token" 2>/dev/null) || token=''
+	[[ $token =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]] || die "the token in Secret $KUBE_NS/$sa is not a JWT; delete that Secret and re-run"
+	[[ $server =~ ^https://[][A-Za-z0-9.:-]+(/[A-Za-z0-9._/-]*)?$ ]] || die "$admin's server $server is not a plain https URL"
+	[[ $ca =~ ^[A-Za-z0-9+/=]*$ ]] || die "$admin's certificate-authority-data is not base64"
+	[[ $sni =~ ^[A-Za-z0-9.-]*$ ]] || die "$admin's tls-server-name is not a hostname"
 	umask 077
 	mkdir -p "$CLUSTERS"
 	{
 		printf 'apiVersion: v1\nkind: Config\nclusters:\n- name: kube-%s\n  cluster:\n    server: %s\n' "$1" "$server"
 		[ -z "$ca" ] || printf '    certificate-authority-data: %s\n' "$ca"
 		[ -z "$sni" ] || printf '    tls-server-name: %s\n' "$sni"
-		printf 'users:\n- name: %s\n  user:\n    token: %s\n' "$sa" "$(base64 -d <<<"$token")"
+		printf 'users:\n- name: %s\n  user:\n    token: %s\n' "$sa" "$token"
 		printf 'contexts:\n- name: kube-%s\n  context: {cluster: kube-%s, user: %s}\ncurrent-context: kube-%s\n' "$1" "$1" "$sa" "$1"
 	} >"$kc.tmp"
 	kubectl --kubeconfig "$kc.tmp" auth can-i create deployments.apps -A >/dev/null 2>&1 || {

@@ -117,7 +117,8 @@ cat >"$work/bin/kubectl" <<'EOF2'
 case "$*" in
 *"config view"*server}) echo https://192.0.2.1:6443 ;;
 *" apply -f -"*) cat >/dev/null ;;
-*"jsonpath={.data.token}"*) printf 'c3R1Yi10b2tlbg==' ;; # stub-token
+*"jsonpath={.data.token}"*) printf '%s' "${STUB_TOKEN:-c3R1Yi5zdHViLnRva2Vu}" ;; # stub.stub.token
+*"auth can-i"*) echo "$*" >>"${STUB_CANI:-/dev/null}" ;;
 esac
 EOF2
 chmod +x "$work/bin/kubectl"
@@ -136,9 +137,16 @@ chmod 600 "$kc"
 kyqs add-cluster lab "$kc" >/dev/null || fail "add-cluster"
 kyqs hosts | grep -q '✔ kube-lab' || fail "kube-lab not ready: $(kyqs hosts)"
 [ "$(stat -c %a "$agentkc")" = 600 ] || fail "agent kubeconfig not 0600"
-grep -qx '    token: stub-token' "$agentkc" || fail "agent kubeconfig lacks the ServiceAccount token"
+grep -qx '    token: stub.stub.token' "$agentkc" || fail "agent kubeconfig lacks the ServiceAccount token"
 grep -qx '    server: https://192.0.2.1:6443' "$agentkc" || fail "agent kubeconfig lacks the server"
 ok "add-cluster needs kyquickstart and a private kubeconfig, and writes a ServiceAccount kubeconfig"
+# A Secret rewritten in the cluster must not add keys (an exec plugin) to the agent's kubeconfig.
+evil=$(printf 'a.b.c\n    exec: {command: /bin/touch, args: [%s/pwned], apiVersion: client.authentication.k8s.io/v1}\n' "$work" | base64 -w0)
+out=$(STUB_TOKEN=$evil STUB_CANI=$work/cani kyqs add-cluster evil "$kc" 2>&1) && fail "accepted a multiline token"
+grep -q 'is not a JWT' <<<"$out" || fail "wrong refusal: $out"
+[ ! -e "$work/cani" ] && [ ! -e "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-evil" ] && [ ! -e "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-evil.tmp" ] ||
+	fail "a malformed token reached kubectl or the state"
+ok "add-cluster refuses a token that is not a plain JWT before kubectl reads it"
 printf '%s\n' "$kc" >"$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 kyqs hosts | grep -qF 'kube-old: added by an older kyqs-ai with your own kubeconfig' || fail "legacy cluster not reported: $(kyqs hosts)"
 rm "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
