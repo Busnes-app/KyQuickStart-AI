@@ -1,5 +1,7 @@
 # KyQuickStart AI
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15933/badge)](https://www.bestpractices.dev/projects/15933)
+
 Install and run the Ky suite with the AI coding agent you already use. This is the primary
 way to install the suite. `kyqs-ai` connects your servers over SSH and your Kubernetes
 clusters, starts the agent with an installation prompt, shows a live status board while it
