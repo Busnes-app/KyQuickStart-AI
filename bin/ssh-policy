@@ -10,10 +10,10 @@ if ! ssh -G -F /dev/null -o RequiredRSASize=2048 policy-check.invalid 2>/dev/nul
 	exit 1
 fi
 if [ -n "${KYQS_SSH_CONFIG:-}" ]; then
-	[ -f "$KYQS_SSH_CONFIG" ] && [ -r "$KYQS_SSH_CONFIG" ] || {
+	if [ ! -f "$KYQS_SSH_CONFIG" ] || [ ! -r "$KYQS_SSH_CONFIG" ]; then
 		echo 'kyqs-ai: KYQS_SSH_CONFIG must name a readable SSH configuration file.' >&2
 		exit 1
-	}
+	fi
 	set -- -F "$KYQS_SSH_CONFIG" "$@"
 fi
 exec ssh \
