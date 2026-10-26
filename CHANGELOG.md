@@ -4,7 +4,7 @@ Releases are source only and tagged `vX.Y.Z` on `master`. There is no built arti
 a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the checkout's
 `git describe --tags` in `launch.txt`.
 
-## Unreleased
+## 0.6.0 — 2026-10-26
 
 ### Changed
 
