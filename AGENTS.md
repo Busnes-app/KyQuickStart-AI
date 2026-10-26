@@ -26,6 +26,8 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   runs (which keep their own copy) are never replaced.
 - `bin/prepare-host.sh`, `bin/revoke-host.sh`: the only root-run code; POSIX `sh`.
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
+- `bin/ssh-policy`: shared transport policy for every launcher/helper SSH call; copied into
+  new runs. `docs/STRONG-SSH.md` owns the supported administrator key/CA profile and scope.
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
   writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
   terminal; without one the agent sends its chat form.
@@ -74,6 +76,10 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   `KYQS_KYQUICKSTART` overrides the binary (empty: none, README installs only).
 - Commands sent through an admin's login shell are base64 only, so fish/zsh/bash cannot
   reinterpret them.
+- Route product-owned SSH through `bin/ssh-policy`: require the actual client's RSA-2048
+  option, retain maintained algorithms after exclusions and bypass old control masters.
+  `KYQS_SSH_CONFIG` selects an explicit reviewed profile; certificate-signing CA size is a
+  separate review, not enforced by OpenSSH's endpoint-size option. Retain strong credentials.
 - The progress log is six tab-separated fields: epoch, clock, phase, item, state, note.
 - The prompt never claims a third-party app is admitted; product facts in it are leads to
   verify at the release tag, and confirmed ones are README findings.
@@ -94,6 +100,10 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `shellcheck -x kyqs-ai bin/* test/*.sh`
 - `test/unit.sh`: progress, dashboard, redact, handover, the setup form (scripted keys).
 - `test/unit.sh` also covers put-secret's trimming and empty refusal.
+- `test/unit.sh` checks effective SSH policy and capability refusal on Linux/macOS.
+- `test/ssh-policy.sh`: real handshakes using the image built by `test/e2e.sh`; weak raw and
+  certificate subjects, obsolete negotiation, strong controls, old master bypass and the
+  separately reviewed CA profile. CI runs it after e2e.
 - `test/e2e.sh`: needs Docker; disposable sshd container with a stub `docker`: add-host,
   pinning and tamper refusal, `--prepared`, add-cluster/revoke/remove-cluster with stub
   kyquickstart and kubectl, put-secret, handover, guided start with a stub agent (targets.tsv,

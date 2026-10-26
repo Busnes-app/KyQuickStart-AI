@@ -8,6 +8,10 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 
 ### Changed
 
+- Launcher and remote helpers require OpenSSH 9.1+ and RSA-2048 endpoint keys, exclude
+  obsolete negotiation algorithms and bypass existing control masters. A reviewed SSH
+  profile can retain strong administrator certificates while excluding weak CAs. Existing
+  keys, server pins and application data are retained; see `docs/STRONG-SSH.md` before upgrading.
 - `add-cluster <name> <admin-kubeconfig>` now creates a ServiceAccount `kyqs-ai/kyqs-ai-<name>`
   bound to the permissions `kyquickstart preflight` checks, plus `pods/log`, and hands the
   agent only its kubeconfig. Before, the agent's kubeconfig was the one you gave, often

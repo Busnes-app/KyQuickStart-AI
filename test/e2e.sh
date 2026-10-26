@@ -185,6 +185,8 @@ grep -qxF "$(printf 'kyq-core\tssh\t%s\t%s\tkyops\t%s\t-' "$ip" "$port" "$fp")" 
 grep -qxF "$(printf 'kube-lab\tkubernetes\t-\t-\t-\t-\t%s' "$agentkc")" "$run/targets.tsv" || fail "cluster facts wrong"
 grep -q kubernetes "$run/kickoff.txt" && fail "kickoff should not carry target details"
 cmp -s "$work/kyquickstart" "$run/bin/kyquickstart" || fail "run has no copy of kyquickstart"
+cmp -s "$ROOT/bin/ssh-policy" "$run/bin/ssh-policy" || fail "run has no copy of the SSH policy"
+[ "$("$run/bin/on" kyq-core 'id -un')" = kyops ] || fail 'copied on helper lost SSH access'
 [ -d "$run/kyq" ] || fail "no kyquickstart state folder"
 grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
 grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"

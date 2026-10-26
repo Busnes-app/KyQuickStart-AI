@@ -114,4 +114,27 @@ for blank in '' $'\n \t\n'; do
 done
 ok "put-secret trims surrounding whitespace, stores 0600, never echoes, refuses a blank secret"
 
+effective=$(KYQS_SSH_CONFIG='' "$ROOT/bin/ssh-policy" -G -F /dev/null policy-check.invalid 2>/dev/null)
+grep -qx 'requiredrsasize 2048' <<<"$effective" || fail 'SSH RSA floor missing'
+control=$(awk '$1 == "controlpath" {print $2}' <<<"$effective")
+[ -z "$control" ] || [ "$control" = none ] || fail 'SSH can attach to an old master'
+for name in kexalgorithms ciphers macs hostkeyalgorithms pubkeyacceptedalgorithms casignaturealgorithms; do
+	value=$(awk -v name="$name" '$1 == name {print $2}' <<<"$effective")
+	[ -n "$value" ] || fail "SSH policy missing $name"
+	grep -qE 'sha1|md5|cbc|arcfour|ssh-rsa|ssh-dss|umac-64|hmac-.*-96' <<<"$value" && fail "SSH weak $name: $value"
+done
+defaults=$(ssh -G -F /dev/null policy-check.invalid 2>/dev/null | awk '$1 == "kexalgorithms" {print $2}')
+for pq in ${defaults//,/ }; do
+	case $pq in mlkem* | sntrup*)
+		grep '^kexalgorithms ' <<<"$effective" | tr ',' '\n' | grep -qF "$pq" || fail "SSH removed maintained PQ KEX $pq"
+		;;
+	esac
+done
+KYQS_SSH_CONFIG=$work/missing "$ROOT/bin/ssh-policy" -G localhost >/dev/null 2>&1 && fail 'SSH ignored a missing profile'
+mkdir -p "$work/old-ssh"
+printf '#!/bin/sh\nexit 0\n' >"$work/old-ssh/ssh"
+chmod +x "$work/old-ssh/ssh"
+PATH=$work/old-ssh:$PATH "$ROOT/bin/ssh-policy" -G localhost >/dev/null 2>&1 && fail 'SSH accepted a client without the RSA option'
+ok 'SSH effective policy, PQ retention and fail-closed capability/profile checks'
+
 echo "unit: all passed"

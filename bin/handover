@@ -30,7 +30,7 @@ fetch() { # <host> <path>
 	if [ "$1" = local ]; then
 		cat -- "$2"
 	else
-		ssh -o BatchMode=yes -- "$1" "cat -- '$2'" </dev/null
+		"$(dirname "$0")/ssh-policy" -o BatchMode=yes -- "$1" "cat -- '$2'" </dev/null
 	fi
 }
 
