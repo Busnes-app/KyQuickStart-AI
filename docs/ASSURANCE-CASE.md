@@ -51,6 +51,13 @@ kubeconfigs), and a server that is already compromised.
    only (`IdentitiesOnly`), its own `known_hosts` and `StrictHostKeyChecking yes` (lines 66-76).
    `kyops`' key line carries `restrict` (no forwarding, no terminal) and the account is locked to
    key-only use (`bin/prepare-host.sh`).
+   Product-owned calls pass through `bin/ssh-policy`, including diagnostics, admin bootstrap,
+   revoke, `bin/on` and handover. It requires RSA-2048 endpoint keys, removes obsolete
+   negotiation mechanisms from maintained defaults and bypasses existing control masters.
+   New runs copy that helper. A reviewed `KYQS_SSH_CONFIG` profile additionally isolates
+   administrator identities and trusted CAs; see [Strong SSH](STRONG-SSH.md). OpenSSH's RSA
+   floor does not inspect signing CAs, and the default general operator configuration is
+   not an automatic CA audit. Direct arbitrary agent commands keep the authority below.
 3. **`kyquickstart` → servers and clusters.** Each run gets its own ssh-agent holding only the
    KyQuickStart AI key, stopped on exit (lines 336-343). Kubeconfigs are passed by path. The
    one in `targets.tsv` is the ServiceAccount's that `add-cluster` wrote (0600, `kube_grant`,

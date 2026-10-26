@@ -28,7 +28,7 @@ has completed suite admission yet, so the agent labels each one a test install. 
 
 ## What you need
 
-- **Your computer:** Linux or macOS with `bash`, `ssh`, `git`, the `kyquickstart` binary on
+- **Your computer:** Linux or macOS with `bash`, OpenSSH 9.1 or later, `git`, the `kyquickstart` binary on
   your `PATH` (or `KYQS_KYQUICKSTART=/path/to/kyquickstart`; build it from
   [KyQuickStart](https://github.com/Busnes-app/KyQuickStart) with `make build`; KyYard needs a
   release binary), an SSH agent for the servers, and one supported agent CLI:
@@ -81,6 +81,13 @@ The launcher walks you through:
 
 Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of
 `kyquickstart`, so a resume uses the same version. See all commands with `./kyqs-ai help`.
+
+Product-owned SSH calls require RSA keys of at least 2048 bits, remove obsolete algorithms
+from maintained OpenSSH defaults, and open a fresh transport rather than reuse an existing
+control master. Existing strong identities and certificates can be retained. For a supported
+configuration that also screens administrator certificate authorities, follow
+[Strong SSH](docs/STRONG-SSH.md). This policy covers launcher/helper calls; an agent's arbitrary
+commands and its model-provider CLI are separate boundaries.
 
 ## Installing on this computer
 

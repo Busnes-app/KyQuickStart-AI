@@ -16,6 +16,7 @@ jobs:
       - run: shellcheck -x kyqs-ai bin/* test/*.sh
       - run: test/unit.sh
       - run: test/e2e.sh
+      - run: test/ssh-policy.sh
 
   macos:
     # The launcher runs on operator workstations: bash 3.2 and BSD tools.

@@ -9,7 +9,7 @@ set -euo pipefail
 }
 case $1 in
 local) cd ~ && exec sh -c "$2" ;; # same start directory as an ssh login
-kyq-*) exec ssh -- "$1" "$2" ;;
+kyq-*) exec "$(dirname "$0")/ssh-policy" -- "$1" "$2" ;;
 *)
 	echo "on: unknown target $1 (expected local or kyq-<name>)" >&2
 	exit 2

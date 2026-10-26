@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Product-owned SSH calls. Keep maintained defaults, removing obsolete mechanisms.
+# RSA certificate signing CAs need the reviewed profile in docs/STRONG-SSH.md.
+set -euo pipefail
+
+# -F /dev/null prevents IgnoreUnknown from disguising a missing size-floor option.
+if ! ssh -G -F /dev/null -o RequiredRSASize=2048 policy-check.invalid 2>/dev/null |
+	awk '$1 == "requiredrsasize" && $2 == 2048 { found = 1 } END { exit !found }'; then
+	echo 'kyqs-ai: SSH needs RequiredRSASize support (OpenSSH 9.1 or later); upgrade the client.' >&2
+	exit 1
+fi
+if [ -n "${KYQS_SSH_CONFIG:-}" ]; then
+	[ -f "$KYQS_SSH_CONFIG" ] && [ -r "$KYQS_SSH_CONFIG" ] || {
+		echo 'kyqs-ai: KYQS_SSH_CONFIG must name a readable SSH configuration file.' >&2
+		exit 1
+	}
+	set -- -F "$KYQS_SSH_CONFIG" "$@"
+fi
+exec ssh \
+	-o RequiredRSASize=2048 \
+	-o 'KexAlgorithms=-*sha1*' \
+	-o 'Ciphers=-*cbc*,arcfour*' \
+	-o 'MACs=-*sha1*,*md5*,*-96*,umac-64*' \
+	-o 'HostKeyAlgorithms=-ssh-rsa*,ssh-dss*' \
+	-o 'PubkeyAcceptedAlgorithms=-ssh-rsa*,ssh-dss*' \
+	-o 'CASignatureAlgorithms=-ssh-rsa,ssh-dss' \
+	-o ControlPath=none "$@"
