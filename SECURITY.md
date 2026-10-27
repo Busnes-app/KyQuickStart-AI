@@ -34,3 +34,15 @@ request.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community expectations
 - [README.md](README.md) — what this project is and how to run it
 
+## Kubernetes TLS configuration
+
+Use [the strong Kubernetes TLS profile](docs/STRONG-KUBERNETES-TLS.md) for
+launcher-owned cluster onboarding/revocation. Compatibility mode may accept
+otherwise trusted short-RSA peers, but both admin operations still require a
+verified HTTPS kubeconfig and stop if local inspection fails. The selected profile
+requires a qualified Go client with release metadata and a successful crypto-mode
+smoke probe, refuses insecure or non-HTTPS kubeconfigs, and applies Go’s TLS
+key/algorithm restrictions before requests. A false CLI verification flag alone
+does not override an insecure kubeconfig. Review local client
+credentials separately; keep their private material and grants intact. Other
+HTTP/SSH/model-provider transports retain their independent policy requirements.

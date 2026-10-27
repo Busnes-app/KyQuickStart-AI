@@ -28,6 +28,7 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
 - `bin/ssh-policy`: shared transport policy for every launcher/helper SSH call; copied into
   new runs. `docs/STRONG-SSH.md` owns the supported administrator key/CA profile and scope.
+- `bin/kubectl-policy`: launcher Kubernetes transport boundary. `docs/STRONG-KUBERNETES-TLS.md` owns its selected strong profile, client-build admission, credential review and scope.
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
   writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
   terminal; without one the agent sends its chat form.
@@ -80,6 +81,16 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   option, retain maintained algorithms after exclusions and bypass old control masters.
   `KYQS_SSH_CONFIG` selects an explicit reviewed profile; certificate-signing CA size is a
   separate review, not enforced by OpenSSH's endpoint-size option. Retain strong credentials.
+- Route every fixed launcher kubectl invocation through `bin/kubectl-policy`. `KYQS_STRONG_KUBE_TLS=1` selects verified Go TLS, refuses unsupported builds/bypasses and retains credentials/grants; unset/0 retains compatibility. This does not configure other runtimes.
+- In the strong profile, require one explicit kubeconfig first and refuse target
+  or trust/credential overrides. Inspect its selected cluster for verified HTTPS before any request,
+  including revocation; a false CLI flag does not reliably override a true
+  kubeconfig boolean. Check release metadata and smoke-test the actual client
+  under the selected GODEBUG before requests; CI uses the qualified pinned
+  kind-image kubectl. Stop argument inspection at the remote-command `--`.
+- Onboarding and revocation require verified HTTPS admin kubeconfigs in both
+  compatibility and strong modes; failed local inspection must stop before API calls.
+  Preserve actual client startup diagnostics when the selected Go environment fails.
 - The progress log is six tab-separated fields: epoch, clock, phase, item, state, note.
 - The prompt never claims a third-party app is admitted; product facts in it are leads to
   verify at the release tag, and confirmed ones are README findings.
@@ -108,10 +119,11 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   pinning and tamper refusal, `--prepared`, add-cluster/revoke/remove-cluster with stub
   kyquickstart and kubectl, put-secret, handover, guided start with a stub agent (targets.tsv,
   kyquickstart copy and allow-list), a local-only start (no SSH), revoke and re-add.
+- `test/kube-tls.sh`: native helper/launcher TLS rejection before HTTP, with strong/trust controls and digest-pinned client. CI runs it and selects the strong profile for the real-cluster job.
 - `test/kube.sh`: needs kubectl and kind (or `KYQS_TEST_KUBECONFIG` for a disposable cluster):
   the ServiceAccount's allowed and denied rights, re-run and repair, revoke and re-add;
   with `KYQS_TEST_KYQUICKSTART`, a real `kyquickstart preflight`. CI's `kube` job runs it.
 
 ## Child DOX Index
 
-None.
+- `test/tls/AGENTS.md`: native Kubernetes TLS fixtures and separation from real-cluster lifecycle checks.

@@ -32,6 +32,12 @@ Run the checks that apply to the files you changed, and the repository's
 full required checks before hand-off. Record the exact commands and their
 results in the pull request.
 
+For launcher Kubernetes transport changes, run `test/kube-tls.sh` with Go and
+Docker (or `KYQS_TEST_KUBECTL` naming an existing client), plus the unit and real
+cluster suites. `KYQS_STRONG_KUBE_TLS=1 test/kube.sh` qualifies the selected
+profile’s existing grant/revocation behavior. Fixture ownership lives in
+`test/tls/AGENTS.md`.
+
 ## AI attribution
 
 AI-assisted contributions are welcome; undisclosed ones are not. Disclose
@@ -42,7 +48,7 @@ every purpose, regardless of how it was produced.
 
 ## Pull requests
 
-Branch off `main` with a focused name, and use a Conventional Commit subject
+Branch off `master` with a focused name, and use a Conventional Commit subject
 (`fix:`, `feat:`, `docs:`, `refactor:`, `test:`, or `chore:`). The pull request
 explains why the change exists, the verification performed, the security impact,
 and any known limitations.

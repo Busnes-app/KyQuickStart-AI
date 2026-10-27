@@ -120,6 +120,7 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 | Tampered `kyquickstart` download | SHA-256 against GitHub's published asset digest; with `gh`, `gh attestation verify --repo Busnes-app/KyQuickStart` | `kyqs-ai` `kyq_update` |
 | Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership and expires the account; `revoke kube-<name>` deletes the ServiceAccount, its token and its ClusterRole and binding | `bin/revoke-host.sh`, `revoke_cluster`, `test/e2e.sh`, `test/kube.sh` |
 | Cluster-admin handed to the agent | The agent's kubeconfig is a ServiceAccount with the preflight list and `pods/log`; denied RBAC, nodes, ServiceAccounts, namespace and volume delete, Secret list | `kube_grant`, `test/kube.sh` |
+| Custom kubectl crypto backend differs from upstream Go | Metadata and a successful startup probe do not establish vendor key-floor semantics; only the named clients are qualified. Run the full native TLS matrix before selecting a custom client, even when its OpenSSL FIPS provider is available | `docs/STRONG-KUBERNETES-TLS.md`, `test/kube-tls.sh` |
 
 ## Residual risk
 
@@ -158,3 +159,19 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 
 This case is updated when a trust boundary, the allow-list or a security requirement changes. A
 pull request that moves one must update this page in the same change.
+
+## Selected Kubernetes TLS profile
+
+Launcher `kubectl` calls share `bin/kubectl-policy`. With
+`KYQS_STRONG_KUBE_TLS=1`, a supported standard Go client must retain normal peer
+verification and apply the Go TLS key/algorithm policy. Admission checks release
+metadata and probes the actual client under the selected crypto mode. In the
+strong profile the helper locally refuses insecure/non-HTTPS kubeconfigs before requests, including
+revocation; both launcher admin operations also require verified HTTPS in
+compatibility mode and fail closed if inspection fails. It does not rely on a
+false flag overriding a true kubeconfig boolean. Native regressions check weak leaf/intermediate/root refusal before administrative HTTP, strong controls
+and ordinary trust failures, including zero TCP/HTTP for insecure kubeconfigs
+through the helper, onboarding and revocation. The real-cluster suite checks grants,
+repair and revocation in this profile. Local client credentials and external
+credential providers require operator review; [the profile guide](STRONG-KUBERNETES-TLS.md)
+owns compatibility, build admission and independent-transport limits.
