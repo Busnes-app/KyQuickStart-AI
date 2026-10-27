@@ -315,7 +315,9 @@ verified_cluster_config() {
  local insecure server
  insecure=$("$ROOT/bin/kubectl-policy" --kubeconfig "$1" config view --minify -o 'jsonpath={.clusters[0].cluster.insecure-skip-tls-verify}') || die "cannot inspect $1's TLS configuration"
  server=$("$ROOT/bin/kubectl-policy" --kubeconfig "$1" config view --minify -o 'jsonpath={.clusters[0].cluster.server}') || die "cannot inspect $1's server"
- [ "$insecure" != true ] && [[ $server =~ ^[Hh][Tt][Tt][Pp][Ss]:// ]] || die "$1 must use verified HTTPS"
+ if [ "$insecure" = true ] || [[ ! $server =~ ^[Hh][Tt][Tt][Pp][Ss]:// ]]; then
+	die "$1 must use verified HTTPS"
+fi
 }
 
 add_cluster() {
