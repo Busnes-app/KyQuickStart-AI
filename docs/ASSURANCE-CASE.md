@@ -163,9 +163,14 @@ pull request that moves one must update this page in the same change.
 
 Launcher `kubectl` calls share `bin/kubectl-policy`. With
 `KYQS_STRONG_KUBE_TLS=1`, a supported standard Go client must retain normal peer
-verification and applies the Go TLS key/algorithm policy. Native regressions check
+verification and apply the Go TLS key/algorithm policy. Admission checks release
+metadata and probes the actual client under the selected crypto mode. The helper
+locally refuses insecure/non-HTTPS kubeconfigs before requests, including
+revocation; it does not rely on a false flag overriding a true kubeconfig boolean.
+Native regressions check
 weak leaf/intermediate/root refusal before administrative HTTP, strong controls
-and ordinary trust failures. The real-cluster suite separately checks grants,
+and ordinary trust failures, including zero TCP/HTTP for insecure kubeconfigs
+through the helper, onboarding and revocation. The real-cluster suite separately checks grants,
 repair and revocation in this profile. Local client credentials and external
 credential providers require operator review; [the profile guide](STRONG-KUBERNETES-TLS.md)
 owns compatibility, build admission and independent-transport limits.

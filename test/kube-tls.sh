@@ -16,6 +16,17 @@ if [ -z "${KYQS_TEST_KUBECTL:-}" ]; then
 	docker cp "$container:/bin/kubectl" "$work/kubectl"
 	chmod 700 "$work/kubectl"
 	export KYQS_TEST_KUBECTL=$work/kubectl
+	docker rm "$container" >/dev/null
+	container=''
+fi
+if [ -z "${KYQS_TEST_UNSUPPORTED_KUBECTL:-}" ]; then
+	# Pinned Microsoft Go/OpenSSL kubectl v1.35.0, Go1.26.10, linux/amd64.
+	# Its missing OpenSSL FIPS provider reproduces the original hosted failure.
+	container=$(docker create --memory 128m --memory-swap 128m --cpus 1 --pids-limit 32 --network none \
+		--entrypoint /bin/true mcr.microsoft.com/oss/v2/kubernetes/kubectl@sha256:cfdff8d70b663f44ca0904f1f5e02a02985763dcc02d11ba1a70044aa02b2794)
+	docker cp "$container:/usr/bin/kubectl" "$work/kubectl-openssl"
+	chmod 700 "$work/kubectl-openssl"
+	export KYQS_TEST_UNSUPPORTED_KUBECTL=$work/kubectl-openssl
 fi
 "$KYQS_TEST_KUBECTL" version --client -o json
 cd "$ROOT/test/tls"

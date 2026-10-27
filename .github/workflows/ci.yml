@@ -43,6 +43,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Use the qualified standard-Go kubectl
+        run: |
+          mkdir -p "$RUNNER_TEMP/qualified-kubectl"
+          fixture_image=kindest/node@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+          fixture_container=$(docker create --memory 128m --memory-swap 128m --cpus 1 --pids-limit 32 --network none --entrypoint /bin/true "$fixture_image")
+          trap 'docker rm "$fixture_container" >/dev/null' EXIT
+          docker cp "$fixture_container:/usr/bin/kubectl" "$RUNNER_TEMP/qualified-kubectl/kubectl"
+          chmod 700 "$RUNNER_TEMP/qualified-kubectl/kubectl"
+          "$RUNNER_TEMP/qualified-kubectl/kubectl" version --client -o json
+          echo "$RUNNER_TEMP/qualified-kubectl" >> "$GITHUB_PATH"
       - name: kyquickstart release binary, pinned by digest
         env:
           GH_TOKEN: ${{ github.token }}

@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -202,4 +203,145 @@ func openSSFTLSCertificate(t *testing.T, ip net.IP, weakAt string, bits int) (tl
 		}
 	}
 	return tls.Certificate{Certificate: chain, PrivateKey: leafKey}, ca
+}
+
+func TestInsecureKubeconfigCannotSendCredentials(t *testing.T) {
+	binary, err := filepath.Abs(os.Getenv("KYQS_TEST_KUBECTL"))
+	if err != nil || os.Getenv("KYQS_TEST_KUBECTL") == "" {
+		t.Fatal("set KYQS_TEST_KUBECTL to the exact client executable")
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []string{"helper", "onboarding", "revocation"} {
+		for _, mode := range []string{"0", "1"} {
+			t.Run(operation+"-profile-"+mode, func(t *testing.T) {
+				var requests atomic.Int32
+				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Header.Get("Authorization") != "Bearer disposable-public-probe-token" {
+						t.Error("wrong fixture credential")
+					}
+					requests.Add(1)
+					http.Error(w, "fixture has no Kubernetes resources", http.StatusNotFound)
+				}))
+				listener := &countedListener{Listener: srv.Listener}
+				srv.Listener = listener
+				srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+				srv.StartTLS()
+				defer srv.Close()
+				cfg := map[string]any{"apiVersion": "v1", "kind": "Config", "current-context": "probe", "clusters": []any{map[string]any{"name": "probe", "cluster": map[string]any{"server": srv.URL, "insecure-skip-tls-verify": true}}}, "contexts": []any{map[string]any{"name": "probe", "context": map[string]any{"cluster": "probe", "user": "probe"}}}, "users": []any{map[string]any{"name": "probe", "user": map[string]any{"token": "disposable-public-probe-token"}}}}
+				raw, err := json.Marshal(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				home := t.TempDir()
+				file := filepath.Join(home, "kubeconfig.json")
+				if err := os.WriteFile(file, raw, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(binary, filepath.Join(home, "kubectl")); err != nil {
+					t.Fatal(err)
+				}
+				stub := filepath.Join(home, "kyquickstart")
+				if err := os.WriteFile(stub, []byte("#!/bin/sh\necho 0.0.0-fixture\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				command := filepath.Join(root, "bin/kubectl-policy")
+				args := []string{"--kubeconfig", file, "--request-timeout=2s", "get", "--raw=/version"}
+				if operation == "onboarding" {
+					command = filepath.Join(root, "kyqs-ai")
+					args = []string{"add-cluster", "fixture", file}
+				}
+				if operation == "revocation" {
+					command = filepath.Join(root, "kyqs-ai")
+					args = []string{"revoke", "kube-fixture", file}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, command, args...)
+				cmd.WaitDelay = 2 * time.Second
+				cmd.Env = []string{"PATH=" + home + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "state"), "GODEBUG=fips140=off", "KYQS_STRONG_KUBE_TLS=" + mode, "KYQS_KYQUICKSTART=" + stub}
+				output, err := cmd.CombinedOutput()
+				if ctx.Err() != nil {
+					t.Fatalf("operation timed out: %s", output)
+				}
+				if mode == "1" && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
+					t.Fatalf("strong profile reached insecure peer: HTTP=%d TCP=%d exit=%v: %s", requests.Load(), listener.accepted.Load(), err, output)
+				}
+				if mode == "0" && operation == "onboarding" && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
+					t.Fatalf("onboarding accepted an insecure kubeconfig: %s", output)
+				}
+				if mode == "0" && operation != "onboarding" && (requests.Load() == 0 || listener.accepted.Load() == 0) {
+					t.Fatalf("insecure compatibility fixture did not receive HTTP: %s", output)
+				}
+			})
+		}
+	}
+}
+
+// This is the actual vendor artifact, not a stub that reports a Go version.
+// Its ordinary metadata succeeds, but the selected runtime lacks its provider.
+func TestUnavailableVendorCryptoBackendRefused(t *testing.T) {
+	binary := os.Getenv("KYQS_TEST_UNSUPPORTED_KUBECTL")
+	if binary == "" {
+		t.Fatal("set KYQS_TEST_UNSUPPORTED_KUBECTL to the pinned OpenSSL-backed client")
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"off", "on", "only"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cmd := exec.CommandContext(ctx, binary, "version", "--client", "-o", "json")
+		cmd.Env = append(os.Environ(), "GODEBUG=fips140="+mode)
+		output, err := cmd.CombinedOutput()
+		cancel()
+		if mode == "off" {
+			if err != nil || !strings.Contains(string(output), `"goVersion"`) {
+				t.Fatalf("ordinary vendor metadata failed: %v: %s", err, output)
+			}
+		} else if err == nil || !strings.Contains(string(output), "FIPS mode requested") {
+			t.Fatalf("vendor crypto-mode negative control changed: mode=%s exit=%v: %s", mode, err, output)
+		}
+	}
+	var requests atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1) }))
+	var connections atomic.Int32
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+	home := t.TempDir()
+	if err := os.Symlink(binary, filepath.Join(home, "kubectl")); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, "kubeconfig.json")
+	// HTTPS configuration is valid for local inspection; the server is a canary
+	// that must see neither a TCP connection nor a request in the refusal path.
+	cfg := fmt.Sprintf(`{"apiVersion":"v1","kind":"Config","current-context":"probe","clusters":[{"name":"probe","cluster":{"server":%q}}],"contexts":[{"name":"probe","context":{"cluster":"probe"}}]}`, strings.Replace(srv.URL, "http://", "https://", 1))
+	if err := os.WriteFile(file, []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"off", "only"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/kubectl-policy"), "--kubeconfig", file, "get", "--raw=/version")
+		cmd.Env = append(os.Environ(), "PATH="+home+string(os.PathListSeparator)+os.Getenv("PATH"), "GODEBUG=fips140="+mode, "KYQS_STRONG_KUBE_TLS=1")
+		output, err := cmd.CombinedOutput()
+		cancel()
+		selected := "on"
+		if mode == "only" {
+			selected = "only"
+		}
+		if err == nil || !strings.Contains(string(output), "this kubectl cannot run with GODEBUG=fips140="+selected) || strings.Contains(string(output), "panic:") || connections.Load() != 0 || requests.Load() != 0 {
+			t.Fatalf("backend not refused locally: mode=%s TCP=%d HTTP=%d exit=%v: %s", mode, connections.Load(), requests.Load(), err, output)
+		}
+	}
 }

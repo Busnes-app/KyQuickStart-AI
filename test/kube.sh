@@ -22,7 +22,7 @@ ok() { echo "ok: $*"; }
 
 if [ -z "$admin" ]; then
 	admin=$work/admin
-	KUBECONFIG=$admin kind create cluster --name "$cluster" --wait 120s >/dev/null 2>&1 || fail "kind create cluster"
+	KUBECONFIG=$admin kind create cluster --name "$cluster" --image kindest/node@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f --wait 120s >/dev/null 2>&1 || fail "kind create cluster"
 fi
 chmod 600 "$admin"
 export HOME=$work/home XDG_STATE_HOME=$work/state

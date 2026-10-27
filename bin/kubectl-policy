@@ -7,8 +7,22 @@ case ${KYQS_STRONG_KUBE_TLS:-0} in
 *) echo 'kyqs-ai: KYQS_STRONG_KUBE_TLS must be 0 or 1.' >&2; exit 1 ;;
 esac
 
+args=("$@")
+# Every fixed launcher call names its kubeconfig first. Keep the inspected
+# cluster identical to the one used for the later request.
+if [ "$#" -lt 2 ] || [ "$1" != --kubeconfig ] || [ -z "$2" ]; then
+	echo 'kyqs-ai: the strong Kubernetes TLS profile requires an explicit kubeconfig.' >&2
+	exit 1
+fi
+kubeconfig=$2
+shift 2
 for arg in "$@"; do
 	case $arg in
+	--) break ;;
+	--kubeconfig|--kubeconfig=*|--context|--context=*|--cluster|--cluster=*|--server|--server=*|-s|-s?*|--user|--user=*)
+		echo 'kyqs-ai: configure the selected kubeconfig instead of overriding its target.' >&2
+		exit 1
+		;;
 	--insecure-skip-tls-verify=false) ;;
 	--insecure-skip-tls-verify*)
 		echo 'kyqs-ai: the strong Kubernetes TLS profile requires peer verification.' >&2
@@ -16,6 +30,26 @@ for arg in "$@"; do
 		;;
 	esac
 done
+# Preserve other Go settings and an explicitly selected, stricter fips140=only.
+mode=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 == "fips140" { value = $2 } END { print value }')
+[ "$mode" = only ] || mode=on
+other_debug=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 != "fips140" && NF { if (out != "") out = out ","; out = out $0 } END { print out }')
+export GODEBUG="${other_debug:+$other_debug,}fips140=$mode"
+# Vendor crypto backends can report a release version yet fail in this mode.
+# Probe the same executable and environment before sending credentials.
+if ! kubectl version --client >/dev/null 2>&1; then
+	echo "kyqs-ai: this kubectl cannot run with GODEBUG=fips140=$mode; use a qualified standard Go release build." >&2
+	exit 1
+fi
+if ! insecure=$(kubectl --kubeconfig "$kubeconfig" config view --minify -o 'jsonpath={.clusters[0].cluster.insecure-skip-tls-verify}' 2>/dev/null) ||
+	! server=$(kubectl --kubeconfig "$kubeconfig" config view --minify -o 'jsonpath={.clusters[0].cluster.server}' 2>/dev/null); then
+	echo 'kyqs-ai: cannot inspect the selected Kubernetes TLS configuration.' >&2
+	exit 1
+fi
+if [ "$insecure" = true ] || [[ ! $server =~ ^[Hh][Tt][Tt][Pp][Ss]:// ]]; then
+	echo 'kyqs-ai: the strong Kubernetes TLS profile requires verified HTTPS in the kubeconfig.' >&2
+	exit 1
+fi
 if ! version=$(kubectl version --client -o json 2>/dev/null); then
 	echo 'kyqs-ai: cannot inspect the kubectl client build for the strong TLS profile.' >&2
 	exit 1
@@ -28,9 +62,6 @@ else
 	exit 1
 fi
 
-# Preserve other Go settings and an explicitly selected, stricter fips140=only.
-mode=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 == "fips140" { value = $2 } END { print value }')
-[ "$mode" = only ] || mode=on
-export GODEBUG="${GODEBUG:+$GODEBUG,}fips140=$mode"
-# The flag overrides insecure-skip-tls-verify in a selected kubeconfig too.
-exec kubectl --insecure-skip-tls-verify=false "$@"
+# client-go does not reliably merge false over a kubeconfig's true boolean.
+# Refuse that setting above; retain the flag as defense in depth.
+exec kubectl --insecure-skip-tls-verify=false "${args[@]}"

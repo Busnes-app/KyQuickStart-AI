@@ -82,6 +82,12 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   `KYQS_SSH_CONFIG` selects an explicit reviewed profile; certificate-signing CA size is a
   separate review, not enforced by OpenSSH's endpoint-size option. Retain strong credentials.
 - Route every fixed launcher kubectl invocation through `bin/kubectl-policy`. `KYQS_STRONG_KUBE_TLS=1` selects verified Go TLS, refuses unsupported builds/bypasses and retains credentials/grants; unset/0 retains compatibility. This does not configure other runtimes.
+- In the strong profile, require one explicit kubeconfig first and refuse target
+  overrides. Inspect its selected cluster for verified HTTPS before any request,
+  including revocation; a false CLI flag does not reliably override a true
+  kubeconfig boolean. Check release metadata and smoke-test the actual client
+  under the selected GODEBUG before requests; CI uses the qualified pinned
+  kind-image kubectl. Stop argument inspection at the remote-command `--`.
 - The progress log is six tab-separated fields: epoch, clock, phase, item, state, note.
 - The prompt never claims a third-party app is admitted; product facts in it are leads to
   verify at the release tag, and confirmed ones are README findings.

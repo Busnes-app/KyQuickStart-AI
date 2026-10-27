@@ -11,6 +11,10 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   a standard Go 1.24+ kubectl release build; existing strong credentials and
   ServiceAccount permissions are retained. See `docs/STRONG-KUBERNETES-TLS.md`
   for client-credential review and independent transport requirements.
+- Refuse insecure/non-HTTPS kubeconfigs before strong-profile onboarding or
+  revocation; a CLI false flag alone does not override an insecure kubeconfig.
+  Check the actual client under its selected crypto mode and use the pinned
+  qualified client for real-cluster CI.
 - Native TLS regressions check weak leaf/intermediate/root refusal before
   administrative HTTP, with strong and ordinary trust-failure controls.
 

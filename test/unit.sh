@@ -141,25 +141,36 @@ mkdir -p "$work/kubectl-bin"
 cat >"$work/kubectl-bin/kubectl" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = version ]; then
+  if [ "${KYQS_TEST_RUNTIME_FAIL:-0}" = 1 ] && [ "${2:-}" = --client ] && [ "$#" = 2 ]; then exit 1; fi
   printf '{"clientVersion":{"goVersion":"%s"}}\n' "$KYQS_TEST_GO_VERSION"
   exit 0
 fi
+case "$*" in
+  *'config view'*insecure-skip-tls-verify*) printf '%s' "${KYQS_TEST_INSECURE:-false}"; exit 0 ;;
+  *'config view'*cluster.server*) printf '%s' 'https://fixture.invalid'; exit 0 ;;
+esac
 printf '%s\n' "${GODEBUG:-}" >"$KYQS_TEST_GO_CAPTURE"
 printf '%s\n' "$@" >"$KYQS_TEST_GO_ARGS"
 EOF
 chmod +x "$work/kubectl-bin/kubectl"
 export KYQS_TEST_GO_VERSION=go1.25.5 KYQS_TEST_GO_CAPTURE=$work/go-env KYQS_TEST_GO_ARGS=$work/go-args
-kube_policy() { PATH=$work/kubectl-bin:$PATH "$ROOT/bin/kubectl-policy" "$@"; }
+kube_policy() { PATH=$work/kubectl-bin:$PATH "$ROOT/bin/kubectl-policy" --kubeconfig "$work/kubeconfig" "$@"; }
 KYQS_STRONG_KUBE_TLS=1 GODEBUG=gcstoptheworld=0,fips140=off kube_policy get pods
-grep -qx 'gcstoptheworld=0,fips140=off,fips140=on' "$work/go-env" || fail 'Kubernetes TLS profile lost/failed to override Go settings'
+grep -qx 'gcstoptheworld=0,fips140=on' "$work/go-env" || fail 'Kubernetes TLS profile lost/failed to override Go settings'
 grep -qx -- '--insecure-skip-tls-verify=false' "$work/go-args" || fail 'Kubernetes TLS profile can skip verification'
 KYQS_STRONG_KUBE_TLS=1 GODEBUG=fips140=only kube_policy get pods
-grep -qx 'fips140=only,fips140=only' "$work/go-env" || fail 'Kubernetes TLS profile weakened only mode'
+grep -qx 'fips140=only' "$work/go-env" || fail 'Kubernetes TLS profile weakened only mode'
 for version in go1.23.9 devel-go1.27 ''; do
 	KYQS_TEST_GO_VERSION=$version KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an unsupported build'
 done
 KYQS_STRONG_KUBE_TLS=1 kube_policy get pods --insecure-skip-tls-verify=true >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an insecure override'
+KYQS_TEST_RUNTIME_FAIL=1 KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >"$work/runtime-failure" 2>&1 && fail 'Kubernetes TLS profile ignored an unavailable runtime crypto backend'
+grep -q 'cannot run with GODEBUG=fips140=on' "$work/runtime-failure" || fail 'Kubernetes runtime refusal lost its diagnostic'
+KYQS_STRONG_KUBE_TLS=1 kube_policy exec fixture -- remote --insecure-skip-tls-verify=true
+grep -qx -- '--insecure-skip-tls-verify=true' "$work/go-args" || fail 'Kubernetes argument scan consumed remote command options'
 KYQS_STRONG_KUBE_TLS=2 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an invalid selector'
+KYQS_TEST_INSECURE=true KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an insecure kubeconfig'
+KYQS_STRONG_KUBE_TLS=1 kube_policy get pods --server=http://fixture.invalid >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted a target override'
 KYQS_TEST_GO_VERSION=go1.23.9 KYQS_STRONG_KUBE_TLS=0 GODEBUG=fips140=off kube_policy get pods
 grep -qx 'fips140=off' "$work/go-env" || fail 'Kubernetes compatibility mode changed'
 ok 'Kubernetes TLS selection, build refusal, verification and Go-setting preservation'

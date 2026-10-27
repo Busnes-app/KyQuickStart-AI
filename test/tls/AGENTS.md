@@ -13,6 +13,12 @@ Standard-library Go test fixtures, generated certificates and actual native-clie
 - Generate only disposable CA/peer material; bind owned loopback listeners.
 - Observe both TCP acceptance and HTTP requests with the public fixture token.
 - Exercise helper and actual add-cluster paths, with strong and ordinary trust-failure controls.
+- Exercise actual revocation with an insecure kubeconfig and untrusted peer:
+  the strong profile must refuse before TCP/HTTP; compatibility controls must
+  reach the owned peer with only the public fixture token.
+- A pinned actual Microsoft Go/OpenSSL client qualifies unavailable-provider
+  rejection; require ordinary metadata success and selected-mode runtime failure,
+  then wrapper refusal before TCP/HTTP. Keep the release-version floor as well.
 - The fixture serves no writable Kubernetes API. `test/kube.sh` owns actual RBAC/ServiceAccount lifecycle proof.
 - Keep normal host verification, race detection and complete native case selection.
 
