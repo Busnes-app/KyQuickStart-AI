@@ -158,3 +158,14 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 
 This case is updated when a trust boundary, the allow-list or a security requirement changes. A
 pull request that moves one must update this page in the same change.
+
+## Selected Kubernetes TLS profile
+
+Launcher `kubectl` calls share `bin/kubectl-policy`. With
+`KYQS_STRONG_KUBE_TLS=1`, a supported standard Go client must retain normal peer
+verification and applies the Go TLS key/algorithm policy. Native regressions check
+weak leaf/intermediate/root refusal before administrative HTTP, strong controls
+and ordinary trust failures. The real-cluster suite separately checks grants,
+repair and revocation in this profile. Local client credentials and external
+credential providers require operator review; [the profile guide](STRONG-KUBERNETES-TLS.md)
+owns compatibility, build admission and independent-transport limits.

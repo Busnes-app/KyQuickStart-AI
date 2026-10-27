@@ -319,7 +319,7 @@ add_cluster() {
 	private_file "$2" || die "$2 is not a file only you can read; chmod 600 it first"
 	local sa=kyqs-ai-$1 kc=$CLUSTERS/kube-$1 admin=$2 token='' ca server sni
 	[[ $kc =~ ^/[A-Za-z0-9._/-]+$ ]] || die "state path $kc: letters, digits and . _ / - only"
-	k() { kubectl --kubeconfig "$admin" "$@"; }
+	k() { "$ROOT/bin/kubectl-policy" --kubeconfig "$admin" "$@"; }
 	field() { k config view --minify --raw --flatten -o "jsonpath={.clusters[0].cluster.$1}"; }
 	[ "$(field insecure-skip-tls-verify)" != true ] || die "$admin skips TLS verification; the agent's kubeconfig would too"
 	server=$(field server)
@@ -349,7 +349,7 @@ add_cluster() {
 		printf 'users:\n- name: %s\n  user:\n    token: %s\n' "$sa" "$token"
 		printf 'contexts:\n- name: kube-%s\n  context: {cluster: kube-%s, user: %s}\ncurrent-context: kube-%s\n' "$1" "$1" "$sa" "$1"
 	} >"$kc.tmp"
-	kubectl --kubeconfig "$kc.tmp" auth can-i create deployments.apps -A >/dev/null 2>&1 || {
+	"$ROOT/bin/kubectl-policy" --kubeconfig "$kc.tmp" auth can-i create deployments.apps -A >/dev/null 2>&1 || {
 		rm -f "$kc.tmp"
 		die "the new ServiceAccount kubeconfig cannot reach $server; nothing registered"
 	}
@@ -373,8 +373,8 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 	need kubectl
 	local sa=kyqs-ai-${1#kube-}
 	# The binding first, so a revoke that dies halfway has already removed the rights.
-	if ! kubectl --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
-		! kubectl --kubeconfig "$2" -n "$KUBE_NS" delete --ignore-not-found "secret/$sa" "serviceaccount/$sa" >/dev/null; then
+	if ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
+		! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" -n "$KUBE_NS" delete --ignore-not-found "secret/$sa" "serviceaccount/$sa" >/dev/null; then
 		die "revoking failed (above). Fix it and re-run; it is safe to repeat."
 	fi
 	mkdir -p "$REVOKED"

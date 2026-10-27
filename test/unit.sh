@@ -137,4 +137,31 @@ chmod +x "$work/old-ssh/ssh"
 PATH=$work/old-ssh:$PATH "$ROOT/bin/ssh-policy" -G localhost >/dev/null 2>&1 && fail 'SSH accepted a client without the RSA option'
 ok 'SSH effective policy, PQ retention and fail-closed capability/profile checks'
 
+mkdir -p "$work/kubectl-bin"
+cat >"$work/kubectl-bin/kubectl" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = version ]; then
+  printf '{"clientVersion":{"goVersion":"%s"}}\n' "$KYQS_TEST_GO_VERSION"
+  exit 0
+fi
+printf '%s\n' "${GODEBUG:-}" >"$KYQS_TEST_GO_CAPTURE"
+printf '%s\n' "$@" >"$KYQS_TEST_GO_ARGS"
+EOF
+chmod +x "$work/kubectl-bin/kubectl"
+export KYQS_TEST_GO_VERSION=go1.25.5 KYQS_TEST_GO_CAPTURE=$work/go-env KYQS_TEST_GO_ARGS=$work/go-args
+kube_policy() { PATH=$work/kubectl-bin:$PATH "$ROOT/bin/kubectl-policy" "$@"; }
+KYQS_STRONG_KUBE_TLS=1 GODEBUG=gcstoptheworld=0,fips140=off kube_policy get pods
+grep -qx 'gcstoptheworld=0,fips140=off,fips140=on' "$work/go-env" || fail 'Kubernetes TLS profile lost/failed to override Go settings'
+grep -qx -- '--insecure-skip-tls-verify=false' "$work/go-args" || fail 'Kubernetes TLS profile can skip verification'
+KYQS_STRONG_KUBE_TLS=1 GODEBUG=fips140=only kube_policy get pods
+grep -qx 'fips140=only,fips140=only' "$work/go-env" || fail 'Kubernetes TLS profile weakened only mode'
+for version in go1.23.9 devel-go1.27 ''; do
+	KYQS_TEST_GO_VERSION=$version KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an unsupported build'
+done
+KYQS_STRONG_KUBE_TLS=1 kube_policy get pods --insecure-skip-tls-verify=true >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an insecure override'
+KYQS_STRONG_KUBE_TLS=2 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an invalid selector'
+KYQS_TEST_GO_VERSION=go1.23.9 KYQS_STRONG_KUBE_TLS=0 GODEBUG=fips140=off kube_policy get pods
+grep -qx 'fips140=off' "$work/go-env" || fail 'Kubernetes compatibility mode changed'
+ok 'Kubernetes TLS selection, build refusal, verification and Go-setting preservation'
+
 echo "unit: all passed"

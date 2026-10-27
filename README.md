@@ -137,6 +137,10 @@ sh prepare-host.sh <the base64 line>
 
 ## Kubernetes clusters
 
+For verified key floors on launcher-owned Kubernetes requests, select the
+[strong Kubernetes TLS profile](docs/STRONG-KUBERNETES-TLS.md). It requires a
+supported kubectl build and separate review of local client credentials.
+
 ```sh
 ./kyqs-ai add-cluster <name> <admin-kubeconfig>       # target kube-<name>
 ./kyqs-ai revoke kube-<name> <admin-kubeconfig>       # delete the agent's ServiceAccount

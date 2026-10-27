@@ -4,6 +4,16 @@ Releases are source only and tagged `vX.Y.Z` on `master`. There is no built arti
 a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the checkout's
 `git describe --tags` in `launch.txt`.
 
+## Unreleased
+
+- Select `KYQS_STRONG_KUBE_TLS=1` to require verified, strong peer certificates
+  for launcher-owned Kubernetes onboarding and revocation. The profile needs
+  a standard Go 1.24+ kubectl release build; existing strong credentials and
+  ServiceAccount permissions are retained. See `docs/STRONG-KUBERNETES-TLS.md`
+  for client-credential review and independent transport requirements.
+- Native TLS regressions check weak leaf/intermediate/root refusal before
+  administrative HTTP, with strong and ordinary trust-failure controls.
+
 ## 0.6.0 — 2026-10-26
 
 ### Changed
