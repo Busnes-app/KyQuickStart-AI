@@ -214,68 +214,82 @@ func TestInsecureKubeconfigCannotSendCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, operation := range []string{"helper", "onboarding", "revocation"} {
-		for _, mode := range []string{"0", "1"} {
-			t.Run(operation+"-profile-"+mode, func(t *testing.T) {
-				var requests atomic.Int32
-				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.Header.Get("Authorization") != "Bearer disposable-public-probe-token" {
-						t.Error("wrong fixture credential")
+	for _, configuration := range []string{"insecure", "http", "missing-context"} {
+		for _, operation := range []string{"helper", "onboarding", "revocation"} {
+			for _, mode := range []string{"0", "1"} {
+				t.Run(configuration+"-"+operation+"-profile-"+mode, func(t *testing.T) {
+					var requests atomic.Int32
+					srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						wantAuthorization := "Bearer disposable-public-probe-token"
+						if configuration == "http" {
+							wantAuthorization = ""
+						} // kubectl suppresses bearer credentials on plain HTTP.
+						if r.Header.Get("Authorization") != wantAuthorization {
+							t.Error("wrong fixture credential")
+						}
+						requests.Add(1)
+						http.Error(w, "fixture has no Kubernetes resources", http.StatusNotFound)
+					}))
+					listener := &countedListener{Listener: srv.Listener}
+					srv.Listener = listener
+					srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+					if configuration == "http" {
+						srv.Start()
+					} else {
+						srv.StartTLS()
 					}
-					requests.Add(1)
-					http.Error(w, "fixture has no Kubernetes resources", http.StatusNotFound)
-				}))
-				listener := &countedListener{Listener: srv.Listener}
-				srv.Listener = listener
-				srv.Config.ErrorLog = log.New(io.Discard, "", 0)
-				srv.StartTLS()
-				defer srv.Close()
-				cfg := map[string]any{"apiVersion": "v1", "kind": "Config", "current-context": "probe", "clusters": []any{map[string]any{"name": "probe", "cluster": map[string]any{"server": srv.URL, "insecure-skip-tls-verify": true}}}, "contexts": []any{map[string]any{"name": "probe", "context": map[string]any{"cluster": "probe", "user": "probe"}}}, "users": []any{map[string]any{"name": "probe", "user": map[string]any{"token": "disposable-public-probe-token"}}}}
-				raw, err := json.Marshal(cfg)
-				if err != nil {
-					t.Fatal(err)
-				}
-				home := t.TempDir()
-				file := filepath.Join(home, "kubeconfig.json")
-				if err := os.WriteFile(file, raw, 0600); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(binary, filepath.Join(home, "kubectl")); err != nil {
-					t.Fatal(err)
-				}
-				stub := filepath.Join(home, "kyquickstart")
-				if err := os.WriteFile(stub, []byte("#!/bin/sh\necho 0.0.0-fixture\n"), 0700); err != nil {
-					t.Fatal(err)
-				}
-				command := filepath.Join(root, "bin/kubectl-policy")
-				args := []string{"--kubeconfig", file, "--request-timeout=2s", "get", "--raw=/version"}
-				if operation == "onboarding" {
-					command = filepath.Join(root, "kyqs-ai")
-					args = []string{"add-cluster", "fixture", file}
-				}
-				if operation == "revocation" {
-					command = filepath.Join(root, "kyqs-ai")
-					args = []string{"revoke", "kube-fixture", file}
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-				defer cancel()
-				cmd := exec.CommandContext(ctx, command, args...)
-				cmd.WaitDelay = 2 * time.Second
-				cmd.Env = []string{"PATH=" + home + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "state"), "GODEBUG=fips140=off", "KYQS_STRONG_KUBE_TLS=" + mode, "KYQS_KYQUICKSTART=" + stub}
-				output, err := cmd.CombinedOutput()
-				if ctx.Err() != nil {
-					t.Fatalf("operation timed out: %s", output)
-				}
-				if mode == "1" && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
-					t.Fatalf("strong profile reached insecure peer: HTTP=%d TCP=%d exit=%v: %s", requests.Load(), listener.accepted.Load(), err, output)
-				}
-				if mode == "0" && operation == "onboarding" && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
-					t.Fatalf("onboarding accepted an insecure kubeconfig: %s", output)
-				}
-				if mode == "0" && operation != "onboarding" && (requests.Load() == 0 || listener.accepted.Load() == 0) {
-					t.Fatalf("insecure compatibility fixture did not receive HTTP: %s", output)
-				}
-			})
+					defer srv.Close()
+					contextCluster := "probe"
+					if configuration == "missing-context" {
+						contextCluster = "missing"
+					}
+					cfg := map[string]any{"apiVersion": "v1", "kind": "Config", "current-context": "probe", "clusters": []any{map[string]any{"name": "probe", "cluster": map[string]any{"server": srv.URL, "insecure-skip-tls-verify": configuration == "insecure"}}}, "contexts": []any{map[string]any{"name": "probe", "context": map[string]any{"cluster": contextCluster, "user": "probe"}}}, "users": []any{map[string]any{"name": "probe", "user": map[string]any{"token": "disposable-public-probe-token"}}}}
+					raw, err := json.Marshal(cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					home := t.TempDir()
+					file := filepath.Join(home, "kubeconfig.json")
+					if err := os.WriteFile(file, raw, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(binary, filepath.Join(home, "kubectl")); err != nil {
+						t.Fatal(err)
+					}
+					stub := filepath.Join(home, "kyquickstart")
+					if err := os.WriteFile(stub, []byte("#!/bin/sh\necho 0.0.0-fixture\n"), 0700); err != nil {
+						t.Fatal(err)
+					}
+					command := filepath.Join(root, "bin/kubectl-policy")
+					args := []string{"--kubeconfig", file, "--request-timeout=2s", "get", "--raw=/version"}
+					if operation == "onboarding" {
+						command = filepath.Join(root, "kyqs-ai")
+						args = []string{"add-cluster", "fixture", file}
+					}
+					if operation == "revocation" {
+						command = filepath.Join(root, "kyqs-ai")
+						args = []string{"revoke", "kube-fixture", file}
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+					defer cancel()
+					cmd := exec.CommandContext(ctx, command, args...)
+					cmd.WaitDelay = 2 * time.Second
+					cmd.Env = []string{"PATH=" + home + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "state"), "GODEBUG=fips140=off", "KYQS_STRONG_KUBE_TLS=" + mode, "KYQS_KYQUICKSTART=" + stub}
+					output, err := cmd.CombinedOutput()
+					if ctx.Err() != nil {
+						t.Fatalf("operation timed out: %s", output)
+					}
+					if (mode == "1" || configuration == "missing-context") && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
+						t.Fatalf("strong profile reached insecure peer: HTTP=%d TCP=%d exit=%v: %s", requests.Load(), listener.accepted.Load(), err, output)
+					}
+					if mode == "0" && operation != "helper" && (err == nil || requests.Load() != 0 || listener.accepted.Load() != 0) {
+						t.Fatalf("launcher accepted an insecure kubeconfig: %s", output)
+					}
+					if mode == "0" && operation == "helper" && configuration != "missing-context" && (requests.Load() == 0 || listener.accepted.Load() == 0) {
+						t.Fatalf("insecure compatibility fixture did not receive HTTP: %s", output)
+					}
+				})
+			}
 		}
 	}
 }
@@ -340,7 +354,7 @@ func TestUnavailableVendorCryptoBackendRefused(t *testing.T) {
 		if mode == "only" {
 			selected = "only"
 		}
-		if err == nil || !strings.Contains(string(output), "this kubectl cannot run with GODEBUG=fips140="+selected) || strings.Contains(string(output), "panic:") || connections.Load() != 0 || requests.Load() != 0 {
+		if err == nil || !strings.Contains(string(output), "cannot start kubectl with GODEBUG=fips140="+selected) || !strings.Contains(string(output), "FIPS mode requested") || connections.Load() != 0 || requests.Load() != 0 {
 			t.Fatalf("backend not refused locally: mode=%s TCP=%d HTTP=%d exit=%v: %s", mode, connections.Load(), requests.Load(), err, output)
 		}
 	}

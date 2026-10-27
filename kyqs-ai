@@ -311,6 +311,13 @@ subjects: [{kind: ServiceAccount, name: $1, namespace: $KUBE_NS}]
 EOF
 }
 
+verified_cluster_config() {
+ local insecure server
+ insecure=$("$ROOT/bin/kubectl-policy" --kubeconfig "$1" config view --minify -o 'jsonpath={.clusters[0].cluster.insecure-skip-tls-verify}') || die "cannot inspect $1's TLS configuration"
+ server=$("$ROOT/bin/kubectl-policy" --kubeconfig "$1" config view --minify -o 'jsonpath={.clusters[0].cluster.server}') || die "cannot inspect $1's server"
+ [ "$insecure" != true ] && [[ $server =~ ^[Hh][Tt][Tt][Pp][Ss]:// ]] || die "$1 must use verified HTTPS"
+}
+
 add_cluster() {
 	[ $# = 2 ] || die "usage: kyqs-ai add-cluster <name> <admin-kubeconfig>"
 	[[ $1 =~ ^[a-z][a-z0-9-]{0,25}$ ]] || die "name: a lowercase letter, then letters, digits and dashes"
@@ -321,7 +328,7 @@ add_cluster() {
 	[[ $kc =~ ^/[A-Za-z0-9._/-]+$ ]] || die "state path $kc: letters, digits and . _ / - only"
 	k() { "$ROOT/bin/kubectl-policy" --kubeconfig "$admin" "$@"; }
 	field() { k config view --minify --raw --flatten -o "jsonpath={.clusters[0].cluster.$1}"; }
-	[ "$(field insecure-skip-tls-verify)" != true ] || die "$admin skips TLS verification; the agent's kubeconfig would too"
+	verified_cluster_config "$admin"
 	server=$(field server)
 	ca=$(field certificate-authority-data)
 	sni=$(field tls-server-name)
@@ -372,6 +379,7 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 	[[ $1 =~ ^kube-[a-z][a-z0-9-]{0,25}$ ]] || die "unknown cluster $1"
 	need kubectl
 	local sa=kyqs-ai-${1#kube-}
+	verified_cluster_config "$2"
 	# The binding first, so a revoke that dies halfway has already removed the rights.
 	if ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
 		! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" -n "$KUBE_NS" delete --ignore-not-found "secret/$sa" "serviceaccount/$sa" >/dev/null; then

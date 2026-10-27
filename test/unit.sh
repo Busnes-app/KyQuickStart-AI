@@ -141,7 +141,7 @@ mkdir -p "$work/kubectl-bin"
 cat >"$work/kubectl-bin/kubectl" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = version ]; then
-  if [ "${KYQS_TEST_RUNTIME_FAIL:-0}" = 1 ] && [ "${2:-}" = --client ] && [ "$#" = 2 ]; then exit 1; fi
+  if [ "${KYQS_TEST_RUNTIME_FAIL:-0}" = 1 ]; then echo "fixture runtime backend unavailable" >&2; exit 1; fi
   printf '{"clientVersion":{"goVersion":"%s"}}\n' "$KYQS_TEST_GO_VERSION"
   exit 0
 fi
@@ -165,7 +165,11 @@ for version in go1.23.9 devel-go1.27 ''; do
 done
 KYQS_STRONG_KUBE_TLS=1 kube_policy get pods --insecure-skip-tls-verify=true >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an insecure override'
 KYQS_TEST_RUNTIME_FAIL=1 KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >"$work/runtime-failure" 2>&1 && fail 'Kubernetes TLS profile ignored an unavailable runtime crypto backend'
-grep -q 'cannot run with GODEBUG=fips140=on' "$work/runtime-failure" || fail 'Kubernetes runtime refusal lost its diagnostic'
+grep -q 'cannot start kubectl with GODEBUG=fips140=on' "$work/runtime-failure" || fail 'Kubernetes runtime refusal lost its diagnostic'
+grep -q 'fixture runtime backend unavailable' "$work/runtime-failure" || fail 'Kubernetes runtime refusal hid the backend diagnostic'
+for override in --certificate-authority=/tmp/test-ca --tls-server-name=fixture.invalid --client-certificate=/tmp/test-cert --client-key=/tmp/test-key --token=public-fixture-token; do
+	KYQS_STRONG_KUBE_TLS=1 kube_policy get pods "$override" >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted a trust/credential override'
+done
 KYQS_STRONG_KUBE_TLS=1 kube_policy exec fixture -- remote --insecure-skip-tls-verify=true
 grep -qx -- '--insecure-skip-tls-verify=true' "$work/go-args" || fail 'Kubernetes argument scan consumed remote command options'
 KYQS_STRONG_KUBE_TLS=2 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an invalid selector'

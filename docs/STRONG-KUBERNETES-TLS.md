@@ -13,13 +13,15 @@ kubectl version --client -o json
 Every fixed launcher `kubectl` call goes through `bin/kubectl-policy`. In this
 profile the helper requires Go 1.24-or-later Go 1.x release metadata,
 selects `fips140=on` in that child process's GODEBUG, and requires a verified
-HTTPS kubeconfig. A local `version --client` smoke probe must also succeed under
+HTTPS kubeconfig. The local `version --client -o json` metadata probe must also succeed under
 that exact environment before a request; release metadata alone cannot identify
-a vendor crypto backend or prove its runtime is usable.
+a vendor crypto backend or prove its runtime is usable. Startup failures include
+the actual runtime diagnostic; inherited unsupported Go settings may be the cause.
 Other Go settings remain; an explicitly selected `fips140=only` remains stricter.
 Unsupported/unidentifiable builds, invalid selector values and caller verification
 bypasses fail before a Kubernetes request. Every fixed helper call names one
-kubeconfig first and permits no target-selection overrides. The helper inspects
+kubeconfig first and permits no target, trust-anchor, TLS-name or credential
+overrides. The helper inspects
 that selected cluster before onboarding or revocation and refuses plain HTTP or
 `insecure-skip-tls-verify: true`. client-go does not reliably merge a false CLI
 boolean over a true kubeconfig setting, so the flag alone cannot enforce this.
@@ -45,8 +47,9 @@ No unreviewed alternative credential source belongs in this selected configurati
 
 ## Scope and compatibility
 
-Unset or `KYQS_STRONG_KUBE_TLS=0` retains existing compatibility behavior, including
-acceptance of otherwise trusted short-RSA TLS peers. Select the strong profile when
+Unset or `KYQS_STRONG_KUBE_TLS=0` retains acceptance of otherwise trusted
+short-RSA TLS peers. Onboarding and revocation require a verified HTTPS admin
+kubeconfig in both modes and stop if local inspection fails. Select the strong profile when
 using this documented configuration. A peer relying on excluded key sizes or
 algorithms needs a server-side upgrade or a different strong certificate. Test
 access before onboarding or revoking with the selected profile.
@@ -62,8 +65,9 @@ bounded configuration does not establish whole-project OpenSSF compliance.
 servers and observes TCP and administrative HTTP separately. It exercises the
 helper, actual `add-cluster`, and revocation with an insecure kubeconfig and an
 untrusted peer. The strong profile refuses the insecure configuration before TCP
-or HTTP; onboarding also refuses it in compatibility mode. Helper/revocation
-compatibility controls reach only the owned peer with a public disposable token.
+or HTTP; onboarding and revocation also refuse it in compatibility mode. Plain
+HTTP and failed configuration inspection are separate refusal cases. The helper
+compatibility control reaches only the owned peer with a public disposable token.
 No fixture exposes a writable Kubernetes API.
 `test/kube.sh` separately proves real ServiceAccount/RBAC creation, access, repair,
 revocation and re-add against a disposable cluster; CI selects the strong profile.

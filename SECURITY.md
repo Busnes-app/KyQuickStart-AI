@@ -37,8 +37,9 @@ request.
 ## Kubernetes TLS configuration
 
 Use [the strong Kubernetes TLS profile](docs/STRONG-KUBERNETES-TLS.md) for
-launcher-owned cluster onboarding/revocation. Compatibility mode preserves the
-existing client policy and may accept trusted short-RSA peers. The selected profile
+launcher-owned cluster onboarding/revocation. Compatibility mode may accept
+otherwise trusted short-RSA peers, but both admin operations still require a
+verified HTTPS kubeconfig and stop if local inspection fails. The selected profile
 requires a qualified Go client with release metadata and a successful crypto-mode
 smoke probe, refuses insecure or non-HTTPS kubeconfigs, and applies Go’s TLS
 key/algorithm restrictions before requests. A false CLI verification flag alone

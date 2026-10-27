@@ -13,6 +13,8 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   for client-credential review and independent transport requirements.
 - Refuse insecure/non-HTTPS kubeconfigs before strong-profile onboarding or
   revocation; a CLI false flag alone does not override an insecure kubeconfig.
+  Both admin operations also require verified HTTPS in compatibility mode and
+  refuse failed local inspection; runtime startup errors retain their diagnostics.
   Check the actual client under its selected crypto mode and use the pinned
   qualified client for real-cluster CI.
 - Native TLS regressions check weak leaf/intermediate/root refusal before
