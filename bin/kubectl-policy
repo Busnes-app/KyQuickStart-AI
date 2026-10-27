@@ -38,8 +38,8 @@ export GODEBUG="${other_debug:+$other_debug,}fips140=$mode"
 # Vendor crypto backends can report a release version yet fail in this mode.
 # Probe the same executable and environment before sending credentials.
 if ! version=$(kubectl version --client -o json 2>&1); then
- printf 'kyqs-ai: cannot start kubectl with GODEBUG=fips140=%s; check the runtime error below:\n%s\n' "$mode" "$version" >&2
- exit 1
+	printf 'kyqs-ai: cannot start kubectl with GODEBUG=fips140=%s; check the runtime error below:\n%s\n' "$mode" "$version" >&2
+	exit 1
 fi
 if ! insecure=$(kubectl --kubeconfig "$kubeconfig" config view --minify -o 'jsonpath={.clusters[0].cluster.insecure-skip-tls-verify}' 2>/dev/null) ||
 	! server=$(kubectl --kubeconfig "$kubeconfig" config view --minify -o 'jsonpath={.clusters[0].cluster.server}' 2>/dev/null); then
