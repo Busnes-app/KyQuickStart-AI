@@ -25,7 +25,8 @@ repository root; line numbers are for v0.5.0.
 4. **Access ends when you say so.** `revoke` removes the agent's key and Docker access, or a
    cluster's ServiceAccount and its rights, and leaves apps and data alone.
 5. **What runs is what was released.** The `kyquickstart` binary it installs must match
-   GitHub's published digest and, with `gh`, a build attestation from KyQuickStart.
+   GitHub's published digest and a build attestation from KyQuickStart's release workflow at
+   that release's tag.
 
 ## Threat model
 
@@ -96,9 +97,9 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 - **Least privilege.** A dedicated, key-only, sudo-less account per server instead of your admin
   login; a dedicated SSH key; a per-run ssh-agent with that key alone.
 - **Fail-safe defaults.** Supervised mode unless you choose hands-off. A host whose reported key
-  differs from the network's, or whose pinned key changed, is refused (lines 233-242). A target
+  differs from the network's, or whose pinned key changed, is refused (`add_host`). A target
   that is not ready is skipped and named. A kyquickstart download that fails its digest or
-  attestation is deleted, not installed (lines 531-541).
+  attestation is deleted, not installed (`kyq_update`).
 - **Economy of mechanism.** One helper (`bin/on`) for every target command; one script each to
   grant and revoke server access.
 - **Separation of privilege.** Root actions run once, through your own login and `sudo`, never by
@@ -117,7 +118,7 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 | Path traversal when storing or reading secrets | `put-secret` requires a path under `/srv/ky/` of `[A-Za-z0-9._/-]` with no `..`; `bin/handover` refuses unsafe hosts and paths | `kyqs-ai` `put_secret`, `bin/handover` `fetch`, both tests |
 | Secrets in files others can read | `umask 077` for the run folder, secrets and the handover; kubeconfigs must be private | `kyqs-ai` line 582, `bin/handover`, `put_secret` |
 | Secrets in logs the agent reads | `bin/redact` masks password/secret/token/key assignments, bearer and basic credentials and six-digit codes on lines that mention a pairing code; a backstop, not a guarantee | `bin/redact`, `test/unit.sh` |
-| Tampered `kyquickstart` download | SHA-256 against GitHub's published asset digest; with `gh`, `gh attestation verify --repo Busnes-app/KyQuickStart` | `kyqs-ai` `kyq_update` |
+| Tampered or replayed `kyquickstart` download | `gh` only, under `GODEBUG=fips140=on`; SHA-256 against GitHub's published asset digest; `gh attestation verify --deny-self-hosted-runners --cert-identity …/release-image.yml@refs/tags/v<tag>` | `kyqs-ai` `kyq_update`, `test/unit.sh` |
 | Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership and expires the account; `revoke kube-<name>` deletes the ServiceAccount, its token and its ClusterRole and binding | `bin/revoke-host.sh`, `revoke_cluster`, `test/e2e.sh`, `test/kube.sh` |
 | Cluster-admin handed to the agent | The agent's kubeconfig is a ServiceAccount with the preflight list and `pods/log`; denied RBAC, nodes, ServiceAccounts, namespace and volume delete, Secret list | `kube_grant`, `test/kube.sh` |
 | Custom kubectl crypto backend differs from upstream Go | Metadata and a successful startup probe do not establish vendor key-floor semantics; only the named clients are qualified. Run the full native TLS matrix before selecting a custom client, even when its OpenSSL FIPS provider is available | `docs/STRONG-KUBERNETES-TLS.md`, `test/kube-tls.sh` |
@@ -133,10 +134,6 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 - **Docker group = root** on every server where `kyops` exists, until `revoke`.
 - **The cluster ServiceAccount can escalate.** Creating pods and reading Secrets in every
   namespace lets it act as other ServiceAccounts, until `revoke kube-<name>`.
-- **The kyquickstart attestation check is not pinned to a workflow or tag.** `kyq_update` passes
-  `--repo` only, so an attestation from any KyQuickStart workflow on any ref is accepted; without
-  `gh`, only the digest from the same GitHub API that served the URL is checked. KyQuickStart's
-  own docs pin `--cert-identity` to `release-image.yml` at the release tag.
 - **Launcher updates are not signature-checked**: `self_update` fast-forwards from the upstream
   over HTTPS ([VERIFYING-RELEASES.md](VERIFYING-RELEASES.md) shows the manual check).
 - **The handover sheet is plaintext** administrator credentials until you shred it.
@@ -152,8 +149,9 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
   clusters, a guided start with a stub agent (allow-list and denied kubeconfig), local mode,
   revoke and re-add. They use stub Docker, agent, `kubectl` and `kyquickstart` commands.
   `test/kube.sh` (CI's `kube` job, kind) checks the cluster ServiceAccount's allowed and denied
-  rights, re-runs, revoke, and a real `kyquickstart preflight`. `kyq_update` and `self_update`
-  have no tests.
+  rights, re-runs, revoke, and a real `kyquickstart preflight`. `test/unit.sh` checks
+  `kyq_update` with a stub `gh`: FIPS policy, digest, tag-pinned attestation, no curl fallback
+  and release ordering. `self_update` has no tests.
 - **Review:** the `main: green checks` ruleset requires a pull request into `master` with the
   `linux` check green; repository administrators can bypass it.
 

@@ -54,7 +54,8 @@ using this documented configuration. A peer relying on excluded key sizes or
 algorithms needs a server-side upgrade or a different strong certificate. Test
 access before onboarding or revoking with the selected profile.
 
-This setting covers launcher-owned `kubectl` calls only. SSH, Git/curl/gh updates,
+This setting covers launcher-owned `kubectl` calls only. SSH, Git and `kyquickstart` updates
+([STRONG-UPDATES.md](STRONG-UPDATES.md)),
 model-provider CLIs, arbitrary agent commands and the separate KyQuickStart binary
 have independent transports. Apply their documented profiles separately. This
 bounded configuration does not establish whole-project OpenSSF compliance.

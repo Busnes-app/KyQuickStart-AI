@@ -588,31 +588,38 @@ self_update() {
 
 KYQ_REPO=Busnes-app/KyQuickStart
 
-# latest_release: the newest KyQuickStart release as lines "tag <tag>" and
-# "asset <name> <url> <sha256:digest>". Needs gh, or curl and jq; prints nothing without them.
-latest_release() {
-	local q='"tag \(.tag_name)", (.assets[] | "asset \(.name) \(.browser_download_url) \(.digest)")'
-	if command -v gh >/dev/null; then
-		gh api "repos/$KYQ_REPO/releases/latest" --jq "$q" 2>/dev/null
-	elif command -v curl >/dev/null && command -v jq >/dev/null; then
-		curl -fsSL --max-time 15 "https://api.github.com/repos/$KYQ_REPO/releases/latest" 2>/dev/null | jq -r "$q"
-	fi
+# gh_strong: gh under Go's FIPS 140 TLS policy (TLS 1.2+, RSA-2048+/P-256+ chains), keeping
+# other GODEBUG settings and an explicit fips140=only. See docs/STRONG-UPDATES.md.
+gh_strong() {
+	local mode other
+	mode=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 == "fips140" { v = $2 } END { print v }')
+	[ "$mode" = only ] || mode=on
+	other=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 != "fips140" && NF { o = o (o == "" ? "" : ",") $0 } END { print o }')
+	GODEBUG="${other:+$other,}fips140=$mode" gh "$@"
 }
 
-older() { # <a> <b>: version a is older than b (X.Y.Z)
-	[ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$1" ]
+# latest_release: the newest KyQuickStart release as lines "tag <tag>" and
+# "asset <name> <url> <sha256:digest>". Needs gh; prints nothing without it.
+latest_release() {
+	local q='"tag \(.tag_name)", (.assets[] | "asset \(.name) \(.browser_download_url) \(.digest)")'
+	command -v gh >/dev/null || return 0
+	gh_strong api "repos/$KYQ_REPO/releases/latest" --jq "$q" 2>/dev/null
+}
+
+older() { # <a> <b>: version a is older than b (X.Y.Z[.N])
+	[ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -1)" = "$1" ]
 }
 
 # kyq_update: offers the latest kyquickstart release when the one in use is older or missing.
-# The download must match the digest GitHub publishes for it and, when gh is installed, the
-# release's build attestation; it then replaces the old binary (or goes to ~/.local/bin).
+# The download must match the digest GitHub publishes for it and the release workflow's build
+# attestation for that exact tag; it then replaces the old binary (or goes to ~/.local/bin).
 kyq_update() {
 	local rel tag have os arch name url digest dest tmp sum
 	[ -n "$KYQ_BIN" ] || [ -z "${KYQS_KYQUICKSTART+set}" ] || return 0 # set empty on purpose: none
 	rel=$(latest_release) || true
 	tag=$(printf '%s\n' "$rel" | sed -n 's/^tag v//p')
 	if [ -z "$tag" ]; then
-		say "Could not check for a newer kyquickstart (offline, or neither gh nor curl and jq)."
+		say "Could not check for a newer kyquickstart (offline, or the GitHub CLI gh is not installed)."
 		return 0
 	fi
 	have=
@@ -642,7 +649,7 @@ kyq_update() {
 	fi
 	mkdir -p "$(dirname "$dest")"
 	tmp=$(mktemp "$(dirname "$dest")/.kyquickstart.XXXXXX")
-	if ! curl -fsSL --max-time 300 -o "$tmp" "$url"; then
+	if ! gh_strong release download "v$tag" --repo "$KYQ_REPO" --pattern "$name" --output "$tmp" --clobber >/dev/null 2>&1; then
 		rm -f "$tmp"
 		say "  download failed; keeping ${have:+kyquickstart }${have:-nothing}"
 		return 0
@@ -653,7 +660,9 @@ kyq_update() {
 		say "  the download does not match the digest GitHub published; not installed"
 		return 0
 	fi
-	if command -v gh >/dev/null && ! gh attestation verify "$tmp" --repo "$KYQ_REPO" >/dev/null 2>&1; then
+	# Only the release workflow, run for this tag on a GitHub-hosted runner, may have built it.
+	if ! gh_strong attestation verify "$tmp" --repo "$KYQ_REPO" --deny-self-hosted-runners \
+		--cert-identity "https://github.com/$KYQ_REPO/.github/workflows/release-image.yml@refs/tags/v$tag" >/dev/null 2>&1; then
 		rm -f "$tmp"
 		say "  its build attestation did not verify; not installed"
 		return 0
@@ -755,6 +764,9 @@ revoke() {
 	say "The pinned host entry stays in $CONF; delete its block there if the server is gone for good."
 	say "To give the agent access again: kyqs-ai add-host $1 <address>"
 }
+
+# Sourced by test/unit.sh for its functions only.
+if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
 
 cmd=${1:-start}
 [ $# -gt 0 ] && shift

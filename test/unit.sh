@@ -179,4 +179,50 @@ KYQS_TEST_GO_VERSION=go1.23.9 KYQS_STRONG_KUBE_TLS=0 GODEBUG=fips140=off kube_po
 grep -qx 'fips140=off' "$work/go-env" || fail 'Kubernetes compatibility mode changed'
 ok 'Kubernetes TLS selection, build refusal, verification and Go-setting preservation'
 
+# kyquickstart self-update: gh only, under the FIPS TLS policy, digest and tag-pinned attestation.
+upd=$work/update
+mkdir -p "$upd/gh-bin" "$upd/nogh-bin" "$upd/dest"
+cat >"$upd/gh-bin/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${GODEBUG:-}" >>"$KYQS_TEST_UPD/godebug"
+case $1 in
+api) printf 'tag v0.4.2.10\nasset kyquickstart-0.4.2.10-%s https://fixture.invalid/k sha256:%s\n' "$KYQS_TEST_ASSET" "$KYQS_TEST_DIGEST" ;;
+release)
+	while [ $# -gt 0 ]; do [ "$1" = --output ] && out=$2; shift; done
+	printf '#!/bin/sh\necho 0.4.2.10\n' >"$out" ;;
+attestation) printf '%s\n' "$@" >"$KYQS_TEST_UPD/attest-args"; exit "${KYQS_TEST_ATTEST:-0}" ;;
+*) exit 9 ;;
+esac
+EOF
+chmod +x "$upd/gh-bin/gh"
+# curl must never carry a release: its TLS key policy is not ours to set.
+# shellcheck disable=SC2016 # expands in the stub, not here
+printf '#!/bin/sh\ntouch "$KYQS_TEST_UPD/curl-called"\nexit 1\n' >"$upd/nogh-bin/curl"
+chmod +x "$upd/nogh-bin/curl"
+for c in bash env readlink touch uname tr sed awk mktemp dirname mkdir sha256sum chmod mv rm head sort cat printf; do ln -s "$(command -v "$c")" "$upd/nogh-bin/$c"; done
+asset=$(uname -s | tr '[:upper:]' '[:lower:]')-$(case $(uname -m) in x86_64 | amd64) echo amd64 ;; aarch64 | arm64) echo arm64 ;; *) uname -m ;; esac)
+good=$(printf '#!/bin/sh\necho 0.4.2.10\n' | sha256sum | awk '{print $1}')
+run_update() { # <PATH> [env...]: one kyq_update against an old 0.4.2.9 binary; prints its version after
+	printf '#!/bin/sh\necho 0.4.2.9\n' >"$upd/dest/kyquickstart"
+	chmod 755 "$upd/dest/kyquickstart"
+	rm -f "$upd/godebug" "$upd/attest-args"
+	# shellcheck disable=SC2016 # expands in the inner bash
+	env PATH="$1" KYQS_TEST_UPD="$upd" KYQS_TEST_ASSET="$asset" "${@:2}" bash -c '
+		source "$1"; KYQ_BIN=$2; confirm() { return 0; }; kyq_update >/dev/null' kyqs-ai-test "$ROOT/kyqs-ai" "$upd/dest/kyquickstart"
+	"$upd/dest/kyquickstart"
+}
+[ "$(run_update "$upd/gh-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.10 ] || fail 'update did not install a verified release'
+[ "$(sort -u "$upd/godebug")" = fips140=on ] || fail "update ran gh outside the FIPS TLS policy: $(cat "$upd/godebug")"
+grep -qx -- '--deny-self-hosted-runners' "$upd/attest-args" || fail 'update allowed self-hosted runners'
+grep -qx 'https://github.com/Busnes-app/KyQuickStart/.github/workflows/release-image.yml@refs/tags/v0.4.2.10' "$upd/attest-args" ||
+	fail 'update did not pin the attestation to the release workflow and tag'
+[ "$(run_update "$upd/gh-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good" KYQS_TEST_ATTEST=1)" = 0.4.2.9 ] || fail 'update installed a binary whose attestation failed'
+[ "$(run_update "$upd/gh-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="${good%?}0")" = 0.4.2.9 ] || fail 'update installed a binary with the wrong digest'
+[ "$(run_update "$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.9 ] || fail 'update ran without gh'
+run_update "$upd/gh-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good" GODEBUG=x509sha1=0,fips140=only >/dev/null
+[ "$(sort -u "$upd/godebug")" = x509sha1=0,fips140=only ] || fail "update dropped other Go settings or fips140=only: $(cat "$upd/godebug")"
+for f in "$upd"/dest/.kyquickstart.*; do [ ! -e "$f" ] || fail 'update left a temporary download behind'; done
+[ ! -e "$upd/curl-called" ] || fail 'update fell back to curl'
+ok 'kyquickstart update: gh only, FIPS TLS policy, digest and tag-pinned attestation, X.Y.Z.N order'
+
 echo "unit: all passed"
