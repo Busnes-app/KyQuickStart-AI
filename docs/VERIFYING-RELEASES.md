@@ -56,8 +56,8 @@ you can check the new `HEAD` the same way: `git verify-commit HEAD`, and on `mas
 with the newest tag (`git describe --tags`).
 
 The `kyquickstart` binary the launcher offers to download is a KyQuickStart release; it is
-checked against GitHub's published SHA-256 digest and, when `gh` is installed, its build
-attestation. KyQuickStart's
+checked against GitHub's published SHA-256 digest and its build attestation from
+`release-image.yml` at that release's tag ([STRONG-UPDATES.md](STRONG-UPDATES.md)). KyQuickStart's
 [docs/VERIFYING-RELEASES.md](https://github.com/Busnes-app/KyQuickStart/blob/master/docs/VERIFYING-RELEASES.md)
 shows how to check it yourself, pinned to the release workflow and tag.
 

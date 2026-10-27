@@ -6,6 +6,13 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 
 ## Unreleased
 
+- `kyquickstart` updates need the GitHub CLI `gh`, logged in; the curl fallback is gone. `gh`
+  runs under `GODEBUG=fips140=on`, and a download is installed only if its build attestation
+  comes from `release-image.yml` at that exact release tag on a GitHub-hosted runner, so an
+  older genuine binary cannot be passed off as new. See `docs/STRONG-UPDATES.md`.
+- Four-part release versions (`0.4.2.10`) now compare correctly; `0.4.2.9` was not offered
+  `0.4.2.10` before.
+
 - Select `KYQS_STRONG_KUBE_TLS=1` to require verified, strong peer certificates
   for launcher-owned Kubernetes onboarding and revocation. The profile needs
   a standard Go 1.24+ kubectl release build; existing strong credentials and
