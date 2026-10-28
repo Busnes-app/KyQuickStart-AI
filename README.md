@@ -314,3 +314,16 @@ test/kube.sh      # needs kubectl and kind: the cluster ServiceAccount, its righ
 ## License
 
 MIT. See [LICENSE.txt](LICENSE.txt).
+
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyQuickStart-AI/branch/master)](https://octocounts.com/github/Busnes-app/KyQuickStart-AI/tree/master)
+
+## Documentation
+
+- [Strong SSH](docs/STRONG-SSH.md) — the SSH algorithm and key policy.
+- [Strong Kubernetes TLS](docs/STRONG-KUBERNETES-TLS.md) — the opt-in strong TLS profile for Kubernetes.
+- [Strong updates](docs/STRONG-UPDATES.md) — the security profile for downloading kyquickstart.
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — check a release tag against its source.
+- [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
+- [Security policy](SECURITY.md) — how to report a vulnerability privately.
+- [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
