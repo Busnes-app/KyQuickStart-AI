@@ -38,8 +38,8 @@ has completed suite admission yet, so the agent labels each one a test install. 
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; with it the dashboard opens beside the agent (`kyqs-ai` starts a tmux session when you are not in one).
 - **Where the apps run:** this computer, servers, Kubernetes clusters, or a mix. Servers and
   this computer need Linux with Docker Engine and the compose plugin already installed (Podman
-  is not supported); servers need a login that can use `sudo` (once, below). Clusters need an
-  admin kubeconfig, `kubectl` on your computer (once, below) and a persistent StorageClass.
+  is not supported); servers need a login that can use `sudo` (once, [below](docs/TARGETS.md#connecting-your-servers-over-ssh)). Clusters need an
+  admin kubeconfig, `kubectl` on your computer (once, [below](docs/TARGETS.md#kubernetes-clusters)) and a persistent StorageClass.
   Nothing installs Docker or Kubernetes for you.
   x86-64 is what the suite targets. Which product runs where:
   [KyQuickStart docs/redirect.md](https://github.com/Busnes-app/KyQuickStart/blob/master/docs/redirect.md).
@@ -54,23 +54,12 @@ cd KyQuickStart-AI
 ./kyqs-ai
 ```
 
-The launcher first checks for updates. If this copy of KyQuickStart AI is behind its git
-upstream, it offers to update it (`git pull --ff-only`) and restarts; a copy with local changes
-is only reported. If `kyquickstart` is missing or older than the latest
-[KyQuickStart release](https://github.com/Busnes-app/KyQuickStart/releases), it offers to
-download the release binary for this computer. The download must match the SHA-256 digest
-GitHub publishes for it and a build attestation from KyQuickStart's release workflow at that
-exact tag; it replaces the old binary, or goes to `~/.local/bin`. A development build is only
-reported. This needs the [GitHub CLI](https://cli.github.com/) `gh`, logged in; it runs under
-Go's strong TLS policy ([Strong updates](docs/STRONG-UPDATES.md)). Without it, install
-`kyquickstart` yourself.
-
 The launcher walks you through:
 
 1. **Where to install.** This computer, one or more servers, or both. For each server give a
    short name, its address and your admin login.
 2. **Agent.** It picks from the agents installed on your computer, and for Claude Code and Codex
-   asks whether to run hands-off (below).
+   asks whether to run hands-off ([below](docs/AGENT-PERMISSIONS.md#hands-off-mode)).
 3. **Setup form.** One question per screen: domain, apps, who reaches them, proxy and
    certificates, placement, the admin and everyday accounts, the recovery ceremony and mail.
    Lists are ticked with Space and confirmed with Enter (↑/↓ move, q quits); a review screen
@@ -83,213 +72,6 @@ The launcher walks you through:
 
 Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of
 `kyquickstart`, so a resume uses the same version. See all commands with `./kyqs-ai help`.
-
-Product-owned SSH calls require RSA keys of at least 2048 bits, remove obsolete algorithms
-from maintained OpenSSH defaults, and open a fresh transport rather than reuse an existing
-control master. Existing strong identities and certificates can be retained. For a supported
-configuration that also screens administrator certificate authorities, follow
-[Strong SSH](docs/STRONG-SSH.md). This policy covers launcher/helper calls; an agent's arbitrary
-commands and its model-provider CLI are separate boundaries.
-
-## Installing on this computer
-
-Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH is involved:
-
-- You need Docker access yourself (`docker info` works without `sudo`).
-- Apps go under `/srv/ky`, owned by you. If it doesn't exist, the launcher asks to run
-  `sudo install -d -m 750 -o $USER -g $USER /srv/ky` once.
-- The agent runs commands **as you**, with your rights, not as a separate login. The prompt
-  confines it to `/srv/ky`, the run folder and the containers it creates, and forbids `sudo`.
-  That is an instruction, not a barrier; choose supervised mode to approve each command.
-- Apps stop when the computer sleeps or shuts down, and other devices reach it at its LAN
-  address, so give it a fixed one. Good for trying the suite; use a server to keep it.
-
-`./kyqs-ai revoke local` stops offering this computer as a target; it removes nothing.
-
-## Connecting your servers over SSH
-
-`./kyqs-ai add-host <name> <address> [port] [admin-user]` (also offered by the guided start):
-
-1. Creates a dedicated key, `~/.ssh/kyquickstart-ai/id_ed25519`. A passphrase is recommended;
-   the launcher loads it into `ssh-agent` for 12 hours.
-2. Logs in **as you**, with `sudo`, once, and runs [`bin/prepare-host.sh`](bin/prepare-host.sh)
-   to create the agent's own login (next section).
-3. Pins the server's host key. The server reports its key fingerprint over your own login, and
-   the launcher refuses to continue if the network answers with a different one. A changed key
-   is never accepted later either.
-4. Adds `Host kyq-<name>` to `~/.ssh/kyquickstart-ai/config`, included from the top of
-   `~/.ssh/config` (it asks first), so `ssh kyq-<name>` works for you and the agent.
-5. Tests the agent's login and Docker access.
-
-Each run starts its own ssh-agent holding only this key, for `kyquickstart`, and stops it
-when the agent exits; your other keys never reach the run.
-
-It is safe to repeat. If any step fails, the server is not registered, and the guided start
-skips (and names) any target that is not ready. `./kyqs-ai hosts` shows what is wrong with
-each one. An address that is this computer is refused; use `add-local` for that. To do step 2 by hand at the server console instead:
-
-```sh
-# on your computer: print the agent's key as one base64 line (creates the key if needed)
-./kyqs-ai ssh-key
-# on the server, as root, with a copy of bin/prepare-host.sh; note the KYQ-HOSTKEY line
-sh prepare-host.sh <the base64 line>
-# back on your computer; it asks you to compare the fingerprint with KYQ-HOSTKEY
-./kyqs-ai add-host --prepared <name> <address> [port]
-```
-
-## Kubernetes clusters
-
-For verified key floors on launcher-owned Kubernetes requests, select the
-[strong Kubernetes TLS profile](docs/STRONG-KUBERNETES-TLS.md). It requires a
-supported kubectl build and separate review of local client credentials.
-
-```sh
-./kyqs-ai add-cluster <name> <admin-kubeconfig>       # target kube-<name>
-./kyqs-ai revoke kube-<name> <admin-kubeconfig>       # delete the agent's ServiceAccount
-./kyqs-ai remove-cluster <name>                       # stop offering it; the cluster is untouched
-```
-
-`add-cluster` needs `kubectl` and your admin kubeconfig (its current context, mode 0600). It
-uses it once to create, in namespace `kyqs-ai`, a ServiceAccount `kyqs-ai-<name>` with a token
-Secret and a ClusterRole and binding of the same name. The agent and `kyquickstart` get only
-that ServiceAccount's kubeconfig, written to
-`~/.local/state/kyquickstart-ai/clusters/kube-<name>` (mode 0600); your admin kubeconfig is not
-recorded. The launcher refuses an admin kubeconfig that skips TLS verification. Re-running
-`add-cluster` is safe and repairs a half-finished setup.
-
-The ClusterRole holds exactly the permissions `kyquickstart preflight` checks (KyQuickStart's
-`internal/kube/preflight.go`), plus `get` on `pods/log` for `logs`, all cluster-wide:
-namespaces, pods, `pods/exec`, `pods/portforward`, Secrets, Services, PersistentVolumeClaims,
-Deployments, NetworkPolicies, listing StorageClasses, and Leases (cluster-wide because
-kyquickstart creates its lock namespace on the first apply). It cannot change RBAC, nodes or
-ServiceAccounts, delete namespaces or volumes, or list Secrets.
-
-**Be aware:** that is not cluster-admin, but it is close. Creating pods and reading Secrets in
-every namespace lets a misbehaving agent run a pod as any ServiceAccount, or read any Secret
-it can name, and so gain other accounts' rights. As with the docker group, the account is
-dedicated and removed when you finish. `kyquickstart handoff` to KyYard on a Kubernetes target
-creates RBAC objects, which this account cannot; the agent gives you that step.
-
-`revoke kube-<name>` deletes the binding, the ClusterRole, the token and the ServiceAccount;
-the API server stops accepting the token within seconds. Apps, their `kyq-<app>` namespaces
-and the `kyqs-ai` namespace stay. `hosts` then lists the cluster as revoked, and `add-cluster`
-gives the agent access again. `remove-cluster` warns if the ServiceAccount still exists.
-A cluster added by an earlier version recorded your own kubeconfig; `hosts` reports it as not
-ready until you run `add-cluster` again.
-
-Claude Code's hands-off settings deny reading the agent's kubeconfig; for other agents the
-prompt's ban is an instruction, not a barrier. Each app gets its own `kyq-<app>` namespace;
-kyquickstart never adopts an object it did not label.
-
-## Letting the agent work without admin rights
-
-The agent never gets root, your password or your cluster-admin kubeconfig (clusters: above).
-On servers, `prepare-host.sh` creates a user `kyops` that:
-
-- logs in only with the KyQuickStart AI key (`restrict`: no forwarding, no terminal),
-- has no password and no `sudo`,
-- belongs to the `docker` group, and owns `/srv/ky`, where every app is installed.
-
-**Be aware:** membership of the `docker` group is equivalent to root on that server. That is
-unavoidable for a tool that installs containers. It is why the account is dedicated, key-only,
-and removed when you finish:
-
-```sh
-./kyqs-ai revoke <name>     # removes kyops' key and docker access; apps and data stay
-```
-
-After that, `./kyqs-ai hosts` lists the server as revoked. `./kyqs-ai add-host` with the
-same name and address gives the agent access again.
-
-Anything that really needs root (firewall, packages) is given to you as a command to run yourself.
-
-### Hands-off mode
-
-By default your agent asks before each command. Hands-off mode pre-approves the commands
-the install uses, so the agent stops when it needs you, not for every `ssh`:
-
-| Agent | Hands-off pre-approves | Supervised |
-|---|---|---|
-| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover` or `./bin/kyquickstart`, plus the Read, Edit and Write tools with no path limit | normal prompts |
-| Codex | Runs `codex -s workspace-write -c sandbox_workspace_write.network_access=true -a never`: every command runs without asking, writes on this computer stay in the run folder (and `/srv/ky` when this computer is a target), network is on | same sandbox, `-a on-request` |
-| Gemini CLI, opencode | not offered | normal prompts |
-
-Claude Code applies the run folder's settings only after you accept its "trust this folder"
-dialog, which it shows once when the run starts; decline it and every command asks first.
-
-**These rules are not limited to your `kyq-*` servers.** `ssh`, `scp` and `curl` are approved
-for any host and any arguments, and Codex's sandbox lets every command reach the network.
-`./bin/on` runs whatever command it is given, on a `kyq-*` server or, with `local`, on this
-computer as you. `./bin/kyquickstart` includes `uninstall`, `unmanage`, `restore --replace`
-and ownership take-over flags; kyquickstart itself keeps data on uninstall and refuses what it
-does not own, but asking you first is the prompt's rule. The prompt is what keeps the agent on
-your targets.
-
-In both modes the prompt tells the agent to ask before anything destructive. That is an
-instruction, not an enforcement: a misbehaving agent with Docker access could still read or
-delete anything on that server. Use supervised mode if you want to approve each command.
-
-At the end the agent offers to file the Ky product problems it found as GitHub issues for
-the Busnes.app team, with domains, addresses, names and secrets replaced by placeholders.
-It shows you each issue and files only the ones you approve, using your `gh` login. `gh` is
-not in the Claude Code hands-off list, so it still asks; Codex hands-off runs it unasked,
-so the approval there is the prompt's instruction alone.
-
-## While it works
-
-The dashboard (`./kyqs-ai dashboard` in a second terminal, or the tmux side pane) shows each
-phase and app, what the agent is doing, recent events, and a **NEEDS YOU** banner when it is
-waiting for you. If it goes quiet for 10 minutes, the board says so. When the board is taller
-than the window, it hides finished items first, then older events.
-
-When the agent needs a secret from you (for example a DNS API token), it does not ask in chat.
-It gives you a command that stores it straight on the server:
-
-```sh
-./kyqs-ai put-secret kyq-<name> /srv/ky/<app>/secrets/<file>   # hidden input, stored 0600
-```
-
-It strips leading and trailing spaces and blank lines from what you paste, stores the rest
-without a final newline, and refuses an empty secret. You can also pipe the value in.
-
-## Secrets
-
-- The prompt has the agent generate secrets on the servers and move them by pipe, so the
-  values stay out of its conversation and your AI provider. This is an instruction the agent
-  follows, not a barrier: an agent that ignores it can read them. Logs it reads pass through
-  a redaction filter as a backstop, and the prompt tells it to report any secret it sees.
-- The handover sheet is assembled by [`bin/handover`](bin/handover) after the agent exits,
-  reading each secret straight from its server into a file only you can read (mode 0600).
-  Save the logins in a password manager, then `shred -u` the file.
-- The run folder is `~/.local/state/kyquickstart-ai/runs/<time>/` (mode 0700).
-
-## What you get
-
-| File in the run folder | Contents |
-|---|---|
-| `handover.txt` | URLs, administrator and everyday logins, break-glass admins, remaining manual steps |
-| `feedback.md` | Run report: what worked, what failed, and the README changes each repo needs |
-| `install-guide-draft.md` | The install sequence that worked, written for a newcomer |
-| `state.md` | The plan, decisions and everything created, for resuming and auditing |
-| `kyq/` | kyquickstart's plan (`stack.yaml`) and results; no secrets. Keep it: later runs operate the same installation from it |
-| `targets.tsv` | Each target's address, port, login and pinned host key, or kubeconfig path |
-| `progress.log` | The dashboard's event log |
-
-## Verification and readiness
-
-The launcher tests check launcher behavior, secret redaction, host-key handling, cluster
-registration and handover mechanics. `test/kube.sh` checks the cluster ServiceAccount's
-rights, re-runs and revoke on a real kind cluster, and runs `kyquickstart preflight` with it. The end-to-end harness uses disposable SSH
-infrastructure and a stub Docker command, agent and kyquickstart; it is **not a full
-Ky-product install or recovery test**. Product deployment, ownership, lifecycle and restore
-are tested in KyQuickStart (`make e2e`).
-
-Read each run’s `feedback.md`, `state.md` and handover before using the installation.
-Require separate observed evidence for email send/receive and verification links, real
-MFA approval, product access/offboarding, backup deposits, blob/bulk coverage, custodian
-card distribution and a scratch restore with the actual cards. A generated handover,
-screenshot, successful health response or synthetic recovery drill proves only its own
-scope. Keep passwords and real recovery shares out of public reports and promo images.
 
 ## Security and releases
 
@@ -319,6 +101,9 @@ MIT. See [LICENSE.txt](LICENSE.txt).
 
 ## Documentation
 
+- [Install targets](docs/TARGETS.md) — installing on this computer, connecting servers over SSH, and Kubernetes clusters. <a id="installing-on-this-computer"></a><a id="connecting-your-servers-over-ssh"></a><a id="kubernetes-clusters"></a>
+- [Agent permissions](docs/AGENT-PERMISSIONS.md) — the agent's dedicated account, its rights, and hands-off mode. <a id="letting-the-agent-work-without-admin-rights"></a><a id="hands-off-mode"></a>
+- [During and after a run](docs/RUNS.md) — the dashboard, secrets, the run folder's files, and what a run proves. <a id="while-it-works"></a><a id="secrets"></a><a id="what-you-get"></a><a id="verification-and-readiness"></a>
 - [Strong SSH](docs/STRONG-SSH.md) — the SSH algorithm and key policy.
 - [Strong Kubernetes TLS](docs/STRONG-KUBERNETES-TLS.md) — the opt-in strong TLS profile for Kubernetes.
 - [Strong updates](docs/STRONG-UPDATES.md) — the security profile for downloading kyquickstart.
