@@ -225,4 +225,37 @@ for f in "$upd"/dest/.kyquickstart.*; do [ ! -e "$f" ] || fail 'update left a te
 [ ! -e "$upd/curl-called" ] || fail 'update fell back to curl'
 ok 'kyquickstart update: gh only, FIPS TLS policy, digest and tag-pinned attestation, X.Y.Z.N order'
 
+# upgrade: the run gets the new kyquickstart, prompt and helpers, and its agent the upgrade kickoff.
+ug=$work/upgrade
+st=$ug/state/kyquickstart-ai
+old=$st/runs/20261024-152107
+mkdir -p "$ug/bin" "$old/bin" "$old/kyq" "$st/runs/20261025-090000/bin"
+printf '#!/bin/sh\necho 0.4.2.10\n' >"$ug/kyquickstart"
+printf '#!/bin/sh\necho 0.4.2.9\n' >"$old/bin/kyquickstart"
+# shellcheck disable=SC2016 # expands in the stub, not here
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >kickoff.txt\n' >"$ug/bin/claude"
+chmod +x "$ug/kyquickstart" "$old/bin/kyquickstart" "$ug/bin/claude"
+echo stale >"$old/PROMPT.md"
+: >"$old/kyq/stack.yaml"
+printf 'local\n' >"$old/hosts.txt"
+printf 'agent: claude\nhands-off: no\nlauncher: x\nkyquickstart-ai: v0.5.0\nkyquickstart: 0.4.2.9\n' >"$old/launch.txt"
+kyqs_up() { env -u TMUX PATH="$ug/bin:$PATH" XDG_STATE_HOME="$ug/state" KYQS_KYQUICKSTART="$ug/kyquickstart" "$ROOT/kyqs-ai" upgrade "$@" </dev/null 2>&1; }
+out=$(kyqs_up) && fail "upgrade took the latest run, which has no installed plan: $out"
+grep -q 'no installed plan' <<<"$out" || fail "upgrade without a plan: $out"
+kyqs_up "$old" >/dev/null || fail "upgrade: $(kyqs_up "$old")"
+cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade did not give the run the new kyquickstart'
+cmp -s "$ROOT/PROMPT.md" "$old/PROMPT.md" || fail 'upgrade left the stale prompt'
+cmp -s "$ROOT/bin/progress" "$old/bin/progress" || fail 'upgrade did not refresh the helpers'
+grep -qx 'kyquickstart: 0.4.2.10' "$old/launch.txt" || fail "launch.txt version: $(cat "$old/launch.txt")"
+grep -qx 'kyquickstart-ai: v0.5.0' "$old/launch.txt" && fail 'launch.txt kept the old launcher version'
+grep -q '^upgraded: .* kyquickstart 0.4.2.9 -> 0.4.2.10$' "$old/launch.txt" || fail "no upgraded line: $(cat "$old/launch.txt")"
+grep -qx 'hands-off: no' "$old/launch.txt" || fail 'upgrade changed the run mode'
+grep -q 'section 12 (Upgrade)' "$old/kickoff.txt" || fail "agent not given the upgrade kickoff: $(cat "$old/kickoff.txt")"
+grep -q '^## 12. Upgrade' "$old/PROMPT.md" || fail 'prompt has no upgrade section'
+printf '#!/bin/sh\necho 0.4.2.8\n' >"$ug/kyquickstart"
+out=$(kyqs_up "$old") && fail "upgrade installed an older kyquickstart: $out"
+grep -q 'older than the run' <<<"$out" || fail "downgrade refusal: $out"
+[ "$("$old/bin/kyquickstart" version)" = 0.4.2.10 ] || fail 'a refused downgrade replaced the binary'
+ok 'upgrade refreshes the run, records both versions, starts the agent on section 12 and refuses a downgrade'
+
 echo "unit: all passed"

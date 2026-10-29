@@ -100,7 +100,8 @@ The current directory is the run folder (private, mode 0700). In it:
 
 The user watches a live dashboard fed only by `bin/progress`. Call it whenever you start or
 finish a step, and with `wait` (plus what you need) **before** you ask the user anything.
-Phases: `preflight`, `edge`, `install`, `identity`, `link`, `backup`, `verify`, `handover`.
+Phases: `preflight`, `edge`, `install`, `identity`, `link`, `backup`, `verify`, `handover`, and
+`upgrade` (section 12).
 Example: `./bin/progress install KyIdentity run "pulling v0.4.4 image"`.
 
 At each phase boundary also print a short board in chat (≤ 12 lines, same icons: ✔ done,
@@ -551,3 +552,36 @@ Mark each step that is not in any README today with **(not in README)**.
      `kyqs-ai revoke <name>` for each server (keeps all apps and data). For `local`
      there is no agent login to remove; `kyqs-ai revoke local` just stops offering it.
    - `feedback.md` holds this site's details; redact it before sharing it anywhere.
+
+## 12. Upgrade
+
+`kyqs-ai upgrade` started you on an installed suite. It replaced `bin/kyquickstart` with a newer
+release and refreshed this file and the helpers; the last `upgraded:` line of `launch.txt`
+names the versions before and after. Skip the interview and install: sections 0, 1, 2, 6
+("Operating installed apps") and 8 still apply.
+
+1. `./bin/progress upgrade suite run "kyquickstart <old> -> <new>"`, and note the upgrade in
+   `state.md`. Move `src/KyQuickStart` to the new tag (section 6) and read its `CHANGELOG.md`
+   from the old version to the new, and "Managing apps" and "Hand-off to KyYard" in
+   `docs/guided-setup.md`.
+2. `./bin/kyquickstart status --state ./kyq` shows each app's deployed version and live state.
+   If it, `state.md` or the last handover says KyYard's suite runner owns the plan, copy the
+   runner's plan first: `./bin/kyquickstart pull-plan --kyyard-target <T> --state ./kyq`.
+3. Show the plan and **wait for "go"**: per app its version now and after, what the changelog
+   says about data migration and backups, and anything it asks you to check. Name every app
+   that has no backup path (a Docker target without a backup destination, a Kubernetes app
+   that runs as root) and ask in the same message whether each may upgrade with
+   `--acknowledge-no-backup`. A stopped app stays as it is unless the user says otherwise.
+4. `./bin/kyquickstart upgrade --state ./kyq`, through `./bin/redact`, with
+   `--acknowledge-no-backup` only on a run naming the apps the user approved. It upgrades in
+   dependency order, stops at the first failure and is safe to rerun. Report each app with
+   `bin/progress upgrade <App>`. `upgrade_refused`, `backup_required`, `ack_required` and
+   `app_stopped` are refusals (section 6): explain them and leave that app as it is.
+5. A KyYard that runs the suite runner is skipped (`runner_host`). If it is behind, upgrading
+   it takes `handoff --revoke`, `apply`, then `handoff` again, and needs approval. On a
+   Kubernetes KyYard, `handoff` is a command for the user (section 0).
+6. Verify as in section 8 for the upgraded apps: `status`, `verify-edge`, and one batch of
+   browser checks (admin and everyday sign-in to each upgraded app). Update `handover.tsv` if
+   anything in it changed and check it with `./bin/handover . >/dev/null`.
+7. Add an `## Upgrade <date>: <old> -> <new>` section to `feedback.md`, then finish as in
+   section 11 with `./bin/progress upgrade suite ok` in place of its first step.

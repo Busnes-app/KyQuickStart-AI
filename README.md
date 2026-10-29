@@ -73,6 +73,17 @@ The launcher walks you through:
 Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of
 `kyquickstart`, so a resume uses the same version. See all commands with `./kyqs-ai help`.
 
+## Upgrade
+
+```sh
+./kyqs-ai upgrade
+```
+
+Run it on the computer and clone that did the install. It updates this clone, downloads the
+newest `kyquickstart` release into the latest run (or the run folder you name) and starts that
+run's agent. The agent shows which apps change, asks before any upgrade without a backup, then
+upgrades, verifies and updates the handover.
+
 ## Security and releases
 
 - [Assurance case](docs/ASSURANCE-CASE.md): what the agent can and cannot reach, the threat

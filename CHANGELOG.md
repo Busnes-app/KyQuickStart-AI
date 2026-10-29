@@ -6,6 +6,14 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 
 ## Unreleased
 
+- `./kyqs-ai upgrade [run-dir]` upgrades an installed suite. It downloads the newest
+  `kyquickstart` release into the run (the latest one by default), refreshes the run's prompt
+  and helpers, records both versions in `launch.txt`, and starts the run's agent on the new
+  `PROMPT.md` section 12: it shows the per-app plan, asks once about upgrades without a
+  backup, copies the plan back from KyYard if needed, then upgrades and verifies. It refuses a
+  run with no installed plan and an older `kyquickstart` than the run's. Before, `resume` kept
+  the run's old binary, so asking the agent to upgrade changed nothing.
+
 - `kyquickstart` updates need the GitHub CLI `gh`, logged in; the curl fallback is gone. `gh`
   runs under `GODEBUG=fips140=on`, and a download is installed only if its build attestation
   comes from `release-image.yml` at that exact release tag on a GitHub-hosted runner, so an

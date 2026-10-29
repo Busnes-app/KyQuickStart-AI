@@ -2,8 +2,8 @@
 
 [Assurance case](ASSURANCE-CASE.md) · [Verifying releases](VERIFYING-RELEASES.md) · [SSH](STRONG-SSH.md) · [Kubernetes TLS](STRONG-KUBERNETES-TLS.md)
 
-`kyqs-ai start` offers the latest `kyquickstart` release when the one in use is older or
-missing (`kyq_update`). This page is the profile for that download.
+`kyqs-ai start` and `kyqs-ai upgrade` offer the latest `kyquickstart` release when the one in
+use is older or missing (`kyq_update`). This page is the profile for that download.
 
 The launcher first checks for updates. If this copy of KyQuickStart AI is behind its git
 upstream, it offers to update it (`git pull --ff-only`) and restarts; a copy with local changes
