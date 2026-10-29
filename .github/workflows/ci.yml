@@ -17,7 +17,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: shellcheck -x kyqs-ai bin/* test/*.sh
       - run: test/unit.sh
       - run: test/e2e.sh
@@ -27,7 +27,7 @@ jobs:
     # The launcher runs on operator workstations: bash 3.2 and BSD tools.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: test/unit.sh
       - run: bash -n kyqs-ai && ./kyqs-ai help >/dev/null
 
@@ -47,7 +47,7 @@ jobs:
     # A real cluster (kind, preinstalled on the runner) for add-cluster's ServiceAccount.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the qualified standard-Go kubectl
         run: |
           mkdir -p "$RUNNER_TEMP/qualified-kubectl"
