@@ -71,18 +71,42 @@ The launcher walks you through:
    show and print it.
 
 Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy of
-`kyquickstart`, so a resume uses the same version. See all commands with `./kyqs-ai help`.
+`kyquickstart`, so a resume uses the same version; [`upgrade`](#upgrade) moves it to a newer
+one. See all commands with `./kyqs-ai help`.
 
 ## Upgrade
 
+Run it in a terminal on the computer and clone that did the install. A clone from before
+`upgrade` existed doesn't know the command yet, so update it first:
+
 ```sh
+cd KyQuickStart-AI
+git pull --ff-only
 ./kyqs-ai upgrade
 ```
 
-Run it on the computer and clone that did the install. It updates this clone, downloads the
-newest `kyquickstart` release into the latest run (or the run folder you name) and starts that
-run's agent. The agent shows which apps change, asks before any upgrade without a backup, then
-upgrades, verifies and updates the handover.
+1. **Launcher update.** It offers to fast-forward this clone and restarts itself.
+2. **New kyquickstart.** If yours is older than the latest release, it offers to download the
+   release with the GitHub CLI (`gh`), checked against its published digest and signed build
+   attestation ([Strong updates](docs/STRONG-UPDATES.md)). Without a terminal it skips this
+   and uses the `kyquickstart` on your PATH, or `KYQS_KYQUICKSTART`.
+3. **The run.** It upgrades the latest run. If that run isn't your install (an aborted or test
+   run), name the run folder:
+   `./kyqs-ai upgrade ~/.local/state/kyquickstart-ai/runs/<time>`. It refuses a run with no
+   installed plan (`kyq/stack.yaml`) and a `kyquickstart` older than the run's. The run gets
+   the new binary, this clone's `PROMPT.md` and helpers, and an
+   `upgraded: <date> kyquickstart <old> -> <new>` line in `launch.txt`.
+4. **The agent.** The run's agent starts in the same hands-off mode as the install. It copies
+   the plan back from KyYard if KyYard runs the suite, shows each app's version now and after
+   with what the changelog says, and **waits for "go"**. Apps with no backup path (a Docker
+   target without a backup destination, a Kubernetes app that runs as root) upgrade only if
+   you approve each one. Apps that are stopped, or that kyquickstart refuses to upgrade, stay
+   as they are.
+5. **After "go".** It upgrades in dependency order and stops at the first failure; running
+   `./kyqs-ai upgrade` again is safe. A KyYard that runs the suite is upgraded last, with your
+   approval, by taking the suite back, upgrading and handing it back; on Kubernetes the agent
+   gives you that hand-off command to run. It then checks sign-in to each upgraded app, updates
+   the handover sheet and adds an upgrade section to `feedback.md`.
 
 ## Security and releases
 

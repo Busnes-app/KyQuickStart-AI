@@ -11,10 +11,11 @@ supported NIST P-256/P-384/P-521 curves or their supported hardware-backed varia
 Keys, server pins and encrypted application data are not rotated. Servers offering only
 excluded mechanisms need a server-side upgrade before these helpers can connect. Local-only
 runs do not use SSH. New runs retain their own helper copy; existing run folders retain their
-previous helpers. To upgrade an existing run, stop its agent, back up its `bin/` directory,
-then copy this checkout's `bin/on`, `bin/handover` and `bin/ssh-policy` into it together. Keep
-the run's `kyquickstart` binary and all state/data. Resume after checking access with the
-updated `bin/on`; restoring the old helper copy also restores its old policy.
+previous helpers until `./kyqs-ai upgrade` copies this checkout's helpers into them (with a
+newer `kyquickstart`). To update only the helpers, stop the run's agent, back up its `bin/`
+directory, then copy this checkout's `bin/on`, `bin/handover` and `bin/ssh-policy` into it
+together. Keep the run's `kyquickstart` binary and all state/data. Resume after checking access
+with the updated `bin/on`; restoring the old helper copy also restores its old policy.
 
 ## Administrator certificates and trust
 

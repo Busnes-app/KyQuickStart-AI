@@ -43,6 +43,7 @@ without a final newline, and refuses an empty secret. You can also pipe the valu
 | `kyq/` | kyquickstart's plan (`stack.yaml`) and results; no secrets. Keep it: later runs operate the same installation from it |
 | `targets.tsv` | Each target's address, port, login and pinned host key, or kubeconfig path |
 | `progress.log` | The dashboard's event log |
+| `launch.txt` | The agent, hands-off mode and versions the run uses, and an `upgraded:` line per upgrade |
 
 ## Verification and readiness
 
