@@ -89,7 +89,7 @@ The allow-list removes prompts for the commands an install needs. **It is not a 
   read `handover.txt` would see every password. The prompt tells it never to open the result.
 - `ssh`, `scp` and `curl` are allowed for any host, so data can leave over the network.
 
-The README says this ("These rules are not limited to your `kyq-*` servers", "an instruction, not
+[Agent permissions](AGENT-PERMISSIONS.md) says this ("These rules are not limited to your `kyq-*` servers", "an instruction, not
 an enforcement"); supervised mode is the choice for anyone who wants to approve each command.
 
 ## Secure design principles applied
@@ -105,7 +105,7 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 - **Separation of privilege.** Root actions run once, through your own login and `sudo`, never by
   the agent; anything else needing root is handed to you as a command.
 - **Psychological acceptability.** The docker-group equivalence, the hands-off scope and every
-  "instruction, not barrier" are printed at the point of choice (lines 433-441) and in the README.
+  "instruction, not barrier" are printed at the point of choice (lines 433-441) and in [Agent permissions](AGENT-PERMISSIONS.md).
 
 ## Common weaknesses and how they are countered
 

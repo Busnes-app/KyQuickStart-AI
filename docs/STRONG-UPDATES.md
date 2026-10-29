@@ -5,6 +5,17 @@
 `kyqs-ai start` offers the latest `kyquickstart` release when the one in use is older or
 missing (`kyq_update`). This page is the profile for that download.
 
+The launcher first checks for updates. If this copy of KyQuickStart AI is behind its git
+upstream, it offers to update it (`git pull --ff-only`) and restarts; a copy with local changes
+is only reported. If `kyquickstart` is missing or older than the latest
+[KyQuickStart release](https://github.com/Busnes-app/KyQuickStart/releases), it offers to
+download the release binary for this computer. The download must match the SHA-256 digest
+GitHub publishes for it and a build attestation from KyQuickStart's release workflow at that
+exact tag; it replaces the old binary, or goes to `~/.local/bin`. A development build is only
+reported. This needs the [GitHub CLI](https://cli.github.com/) `gh`, logged in; it runs under
+Go's strong TLS policy ([Strong updates](#what-is-enforced)). Without it, install
+`kyquickstart` yourself.
+
 ## What is enforced
 
 - **`gh` only.** The release list, the binary and its attestation come through the GitHub CLI.

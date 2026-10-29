@@ -34,7 +34,7 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `bin/interview`: the launcher's setup form (PROMPT.md section 3 as screens and tick lists),
   writing `<run>/interview.yaml`; its app table follows PROMPT.md section 4. It runs only on a
   terminal; without one the agent sends its chat form.
-- `README.md`: user guide. `CHANGELOG.md`: release notes. `CONTRIBUTING.md`: process, test
+- `README.md` and `docs/TARGETS.md`, `docs/AGENT-PERMISSIONS.md`, `docs/RUNS.md`: user guide. `CHANGELOG.md`: release notes. `CONTRIBUTING.md`: process, test
   policy and coding standard.
 - `docs/ASSURANCE-CASE.md`: threat model, trust boundaries, what the hands-off allow-list does
   and does not stop, weaknesses table; updated by any change to a trust boundary or the
@@ -99,7 +99,7 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - Ky product findings go to `Busnes-app/<repo>` as GitHub issues only with the user's
   approval of each redacted issue; third-party findings stay in `feedback.md`.
 - Destructive steps need explicit user approval; the prompt states this, the tools do not
-  enforce it, and the README says so.
+  enforce it, and `docs/AGENT-PERMISSIONS.md` says so.
 
 ## Work Guidance
 

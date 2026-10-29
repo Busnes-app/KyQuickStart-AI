@@ -334,7 +334,7 @@ add_cluster() {
 	server=$(field server)
 	ca=$(field certificate-authority-data)
 	sni=$(field tls-server-name)
-	say "Creating ServiceAccount $KUBE_NS/$sa with the permissions kyquickstart checks (README)."
+	say "Creating ServiceAccount $KUBE_NS/$sa with the permissions kyquickstart checks (docs/TARGETS.md)."
 	kube_grant "$sa" | k apply -f - >/dev/null || die "creating it failed (above). Fix it and re-run; it is safe to repeat."
 	for _ in $(seq 30); do
 		token=$(k -n "$KUBE_NS" get secret "$sa" -o 'jsonpath={.data.token}' 2>/dev/null) || true
@@ -366,7 +366,7 @@ add_cluster() {
 	mv "$kc.tmp" "$kc"
 	rm -f "$REVOKED/kube-$1"
 	say "ready: kube-$1. kyquickstart uses $kc (ServiceAccount $sa, not cluster-admin, but able to"
-	say "create pods and read Secrets in every namespace: README). Remove it with kyqs-ai revoke kube-$1 <admin-kubeconfig>."
+	say "create pods and read Secrets in every namespace: docs/TARGETS.md). Remove it with kyqs-ai revoke kube-$1 <admin-kubeconfig>."
 }
 
 remove_cluster() {
@@ -557,7 +557,7 @@ pick_mode() {
 			say "sandbox (writes only in the run folder, and $DATA if this computer is a target; network on)." >&2
 		fi
 		say "The prompt tells the agent to ask before anything destructive; nothing enforces that." >&2
-		say "Details: README.md, \"Hands-off mode\". Otherwise it asks before each command." >&2
+		say "Details: docs/AGENT-PERMISSIONS.md, \"Hands-off mode\". Otherwise it asks before each command." >&2
 		if confirm "Use hands-off mode?"; then printf yes; else printf no; fi
 		;;
 	*) printf no ;;
