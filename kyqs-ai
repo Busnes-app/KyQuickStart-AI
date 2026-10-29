@@ -759,7 +759,8 @@ upgrade() {
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
 	umask 077
 	run_files "$run"
-	cmp -s "$KYQ_BIN" "$run/bin/kyquickstart" || cp "$KYQ_BIN" "$run/bin/kyquickstart"
+	# rename, not overwrite: the old binary may still be running (cp fails with "Text file busy")
+	cmp -s "$KYQ_BIN" "$run/bin/kyquickstart" || { cp "$KYQ_BIN" "$run/bin/kyquickstart.new" && mv -f "$run/bin/kyquickstart.new" "$run/bin/kyquickstart"; }
 	awk -v ai="$(ai_version)" -v new="$new" -v line="upgraded: $(date +%Y-%m-%dT%H:%M%z) kyquickstart $have -> $new" '
 		/^kyquickstart-ai: / { $0 = "kyquickstart-ai: " ai }
 		/^kyquickstart: / { $0 = "kyquickstart: " new }
