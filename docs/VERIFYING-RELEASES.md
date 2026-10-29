@@ -50,7 +50,7 @@ Both commands were run against v0.5.0 (commit `7dc55aa`): GitHub reports `verifi
 
 ## Updates inside the launcher
 
-At `start` and `resume`, `kyqs-ai` offers to fast-forward your clone to its upstream branch
+At `start`, `resume` and `upgrade`, `kyqs-ai` offers to fast-forward your clone to its upstream branch
 (`self_update`). That trusts GitHub over HTTPS and does not check signatures. After an update
 you can check the new `HEAD` the same way: `git verify-commit HEAD`, and on `master` compare it
 with the newest tag (`git describe --tags`).

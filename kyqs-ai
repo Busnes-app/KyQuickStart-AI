@@ -50,6 +50,8 @@ usage: kyqs-ai [command]
                                  a Cloudflare token the agent asked for. Path under /srv/ky/.
   dashboard [run-dir]            Live status board (latest run by default)
   resume                         Restart the agent on the latest run where it left off
+  upgrade [run-dir]              Upgrade an installed suite (latest run by default): fetch the
+                                 newest kyquickstart into the run, then the agent upgrades the apps
   handover [run-dir]             Rebuild the printable handover sheet
   revoke <name> [admin-user]     Remove the agent's access to a server when you are done
                                  (revoke local: stop using this computer as a target)
@@ -564,7 +566,7 @@ pick_mode() {
 	esac
 }
 
-# self_update <command>: offers to fast-forward this checkout when its upstream moved on, then
+# self_update <command> [args]: offers to fast-forward this checkout when its upstream moved on, then
 # reruns the command with the new launcher. Local changes or a diverged branch are only reported.
 self_update() {
 	local up behind
@@ -583,7 +585,7 @@ self_update() {
 	confirm "Update it now?" || return 0
 	git -C "$ROOT" merge -q --ff-only "$up"
 	say "Updated. Restarting with the new version."
-	exec "$ROOT/kyqs-ai" "$1"
+	exec "$ROOT/kyqs-ai" "$@"
 }
 
 KYQ_REPO=Busnes-app/KyQuickStart
@@ -710,16 +712,14 @@ start() {
 	umask 077
 	run=$RUNS/$(date +%Y%m%d-%H%M%S)
 	mkdir -p "$run/bin"
-	cp "$ROOT/PROMPT.md" "$run/"
-	cp "$ROOT/bin/on" "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$ROOT/bin/ssh-policy" "$run/bin/"
+	run_files "$run"
 	# The run keeps its own copy, so a resume uses the same execution layer.
 	[ -z "$KYQ_BIN" ] || cp "$KYQ_BIN" "$run/bin/kyquickstart"
 	mkdir -p "$run/kyq"
 	printf '%s\n' "${ready[@]}" >"$run/hosts.txt"
 	target_facts "${ready[@]}" >"$run/targets.tsv"
 	printf 'agent: %s\nhands-off: %s\nlauncher: %s\nkyquickstart-ai: %s\nkyquickstart: %s\n' "$agent" "$hands" "$ROOT/kyqs-ai" \
-		"$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)" \
-		"$([ -x "$run/bin/kyquickstart" ] && "$run/bin/kyquickstart" version | head -1 || echo none)" >"$run/launch.txt"
+		"$(ai_version)" "$(run_kyq_version "$run")" >"$run/launch.txt"
 	say "Run folder: $run"
 	local kick="You are running KyQuickStart AI. Read ./PROMPT.md in full and follow it exactly. Your run folder is the current directory. Install targets are listed in ./hosts.txt."
 	# The interview as a form here, with lists to tick, instead of a chat message to edit.
@@ -740,6 +740,37 @@ resume() {
 	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
 	dashboard_hint "$run"
 	launch "$agent" "$hands" "$run" "You are resuming KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md, ./progress.log and ./feedback.md, and continue from the first unfinished step. Do not redo finished steps."
+	finish "$run"
+}
+
+run_files() { cp "$ROOT/PROMPT.md" "$1/" && cp "$ROOT/bin/on" "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$ROOT/bin/ssh-policy" "$1/bin/"; }
+ai_version() { git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown; }
+run_kyq_version() { if [ -x "$1/bin/kyquickstart" ]; then "$1/bin/kyquickstart" version | head -1; else echo none; fi; }
+
+# upgrade [run-dir]: gives an installed run the newest kyquickstart, prompt and helpers, then
+# starts its agent on PROMPT.md section 12. The only command that replaces a run's kyquickstart.
+upgrade() {
+	local run=${1:-$(latest_run)} have new agent hands
+	[ -f "$run/kyq/stack.yaml" ] || die "$run has no installed plan (kyq/stack.yaml); nothing to upgrade"
+	[ ! -t 0 ] || kyq_update
+	[ -n "$KYQ_BIN" ] || die "upgrading needs kyquickstart: install a release, or set KYQS_KYQUICKSTART"
+	have=$(run_kyq_version "$run")
+	new=$("$KYQ_BIN" version | head -1)
+	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
+	umask 077
+	run_files "$run"
+	cmp -s "$KYQ_BIN" "$run/bin/kyquickstart" || cp "$KYQ_BIN" "$run/bin/kyquickstart"
+	awk -v ai="$(ai_version)" -v new="$new" -v line="upgraded: $(date +%Y-%m-%dT%H:%M%z) kyquickstart $have -> $new" '
+		/^kyquickstart-ai: / { $0 = "kyquickstart-ai: " ai }
+		/^kyquickstart: / { $0 = "kyquickstart: " new }
+		{ print } END { print line }' "$run/launch.txt" >"$run/launch.txt.new"
+	mv "$run/launch.txt.new" "$run/launch.txt"
+	say "Run $run: kyquickstart $have -> $new"
+	agent=$(sed -n 's/^agent: //p' "$run/launch.txt")
+	hands=$(sed -n 's/^hands-off: //p' "$run/launch.txt")
+	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
+	dashboard_hint "$run"
+	launch "$agent" "$hands" "$run" "You are upgrading the Ky suite with KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md and ./feedback.md, and follow section 12 (Upgrade). The last upgraded: line in ./launch.txt names the kyquickstart versions before and after."
 	finish "$run"
 }
 
@@ -770,13 +801,16 @@ if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
 
 cmd=${1:-start}
 [ $# -gt 0 ] && shift
-case $cmd in start | resume) [ ! -t 0 ] || self_update "$cmd" ;; esac
-# The dashboard opens beside the agent only inside tmux, so a run starts its own session when
-# tmux is installed. The window stays open after the run, so its last lines can be read.
-if { [ "$cmd" = start ] || [ "$cmd" = resume ]; } && [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
-	# shellcheck disable=SC2016 # $0, $1 and $? are the inner bash's, not this script's
-	exec tmux new-session -s "kyqs-ai-$$" bash -c '"$0" "$1"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$cmd"
-fi
+case $cmd in start | resume | upgrade)
+	[ ! -t 0 ] || self_update "$cmd" "$@"
+	# The dashboard opens beside the agent only inside tmux, so a run starts its own session when
+	# tmux is installed. The window stays open after the run, so its last lines can be read.
+	if [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
+		# shellcheck disable=SC2016 # $0, $@ and $? are the inner bash's, not this script's
+		exec tmux new-session -s "kyqs-ai-$$" bash -c '"$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$cmd" "$@"
+	fi
+	;;
+esac
 case $cmd in
 start) start ;;
 add-local) add_local ;;
@@ -788,6 +822,7 @@ ssh-key) ssh_setup && base64 <"$KEY.pub" | tr -d '\n' && echo ;;
 put-secret) put_secret "$@" ;;
 dashboard) "$ROOT/bin/dashboard" "${1:-$(latest_run)}" ;;
 resume) resume ;;
+upgrade) upgrade "$@" ;;
 handover) "$ROOT/bin/handover" "${1:-$(latest_run)}" ;;
 revoke) revoke "$@" ;;
 -h | --help | help) usage ;;

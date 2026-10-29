@@ -19,12 +19,17 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 - `kyqs-ai`: launcher. Targets (`add-local`, `add-host`, `add-cluster`, `remove-cluster`,
   `revoke`, including a cluster's ServiceAccount), `put-secret`, run folders (`targets.tsv`, a copy of `kyquickstart`, `kyq/`),
   agent launch per CLI, dashboard placement, handover after exit.
-- Updates (`self_update`, `kyq_update` in `kyqs-ai`): on a terminal, `start` and `resume` offer
-  to fast-forward this checkout, and `start` offers the latest KyQuickStart release binary when
+- Updates (`self_update`, `kyq_update` in `kyqs-ai`): on a terminal, `start`, `resume` and
+  `upgrade` offer to fast-forward this checkout, and `start` and `upgrade` offer the latest
+  KyQuickStart release binary when
   the one in use is older or missing. Release checks need `gh` (no curl fallback) and run it
   under `GODEBUG=fips140=on`. A binary is installed only after it matches GitHub's published
   digest and a build attestation from `release-image.yml` at that exact tag on a GitHub-hosted
   runner; development builds and resumed runs (which keep their own copy) are never replaced.
+- `upgrade [run-dir]` is the only command that replaces a run's `kyquickstart` (never with an
+  older release); it also refreshes the run's `PROMPT.md` and helpers, records
+  `upgraded: <date> kyquickstart <old> -> <new>` in `launch.txt`, and starts the run's agent on
+  `PROMPT.md` section 12.
   `docs/STRONG-UPDATES.md` owns this profile and its scope.
 - `bin/prepare-host.sh`, `bin/revoke-host.sh`: the only root-run code; POSIX `sh`.
 - `bin/on`, `bin/progress`, `bin/dashboard`, `bin/redact`, `bin/handover`: run-folder helpers.
