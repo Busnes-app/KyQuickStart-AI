@@ -117,6 +117,7 @@ out=$(printf '\n  tok-3n9 x\t\n\n' | put "$data/app/token" 2>&1) || fail "put-se
 grep -q tok-3n9 <<<"$out" && fail "put-secret echoed the secret"
 chmod 644 "$data/app/token"
 printf 'tok-2' | put "$data/app/token" >/dev/null 2>&1 || fail "put-secret over an existing file"
+[ "$(cat "$data/app/token")" = tok-2 ] || fail "put-secret over an existing file stored the wrong value"
 # shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
 [ "$(ls -l "$data/app/token" | cut -c1-10)" = -rw------- ] || fail "put-secret kept an existing file's looser mode"
 for blank in '' $'\n \t\n'; do
@@ -314,11 +315,15 @@ grep -q 'agent exited with status 3' <<<"$out" || fail "a failing agent's status
 grep -q 'agent session ended' <<<"$out" || fail "a failing agent skipped the end of session: $out"
 sleep 30 &
 busy=$!
-echo "$busy" >"$old/.launcher.pid"
+mkdir "$old/.launcher"
+echo "$busy" >"$old/.launcher/pid"
 out=$(kyqs_up "$old") && fail "upgrade ran beside another live launcher: $out"
 kill "$busy" 2>/dev/null || true
 wait "$busy" 2>/dev/null || true
-grep -q 'still running an agent' <<<"$out" || fail "busy run refusal: $out"
+grep -q 'is running an agent on' <<<"$out" || fail "busy run refusal: $out"
+[ "$(cat "$old/.launcher/pid")" = "$busy" ] || fail "a refused upgrade took the live launcher's lock"
+kyqs_up "$old" >/dev/null || fail "upgrade did not take over a dead launcher's lock: $(kyqs_up "$old")"
+[ ! -e "$old/.launcher" ] || fail "upgrade left its lock behind"
 ok 'upgrade repeats without a false record, takes a relative run path, finishes after a failing agent and refuses a busy run'
 
 echo "unit: all passed"

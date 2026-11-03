@@ -75,7 +75,8 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   `revoke kube-<name> <admin-kubeconfig>` deletes binding, role, token and ServiceAccount, in
   that order, empties that file and leaves `<state>/revoked/kube-<name>`; `add-cluster`
   removes it. Both refuse an admin kubeconfig whose server is not the registered one.
-- One launcher per run (`<run>/.launcher.pid`); a cancelled setup form removes its new run. Add-host names may not start with `kube-`.
+  Add-host names may not start with `kube-`.
+- One launcher per run (lock folder `<run>/.launcher`); a cancelled setup form removes its new run.
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is
   refused. The fingerprint comes from the server over the admin's own login or from the user.
   `targets.tsv` hands that fingerprint to kyquickstart's `--trust-host-key`; kyquickstart pins

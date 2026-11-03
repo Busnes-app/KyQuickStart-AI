@@ -314,7 +314,10 @@ subjects: [{kind: ServiceAccount, name: $1, namespace: $KUBE_NS}]
 EOF
 }
 
-registered_server() { sed -n 's/^    server: //p' "$CLUSTERS/$1" 2>/dev/null || true; } # <kube-name>; empty once revoked
+registered_server() { # <kube-name>: the server add_cluster wrote; empty once revoked or for an older registration
+	grep -qx "current-context: $1" "$CLUSTERS/$1" 2>/dev/null || return 0
+	sed -n 's/^    server: //p' "$CLUSTERS/$1"
+}
 
 verified_cluster_config() {
 	local insecure server
@@ -447,9 +450,9 @@ put_secret() {
 		read -r -s -p "Paste the secret (hidden), then Enter: " v
 		echo
 		# Lines after the first would otherwise reach the shell as commands, and into its history.
-		while IFS= read -r -s -t 1 line || [ -n "$line" ]; do
-			[ -z "$line" ] || more=1
-			line=
+		# One character at a time: that also takes an unterminated last line out of the terminal.
+		while IFS= read -r -s -t 1 -n 1 line; do
+			case $line in [![:space:]]) more=1 ;; esac
 		done
 		[ -z "$more" ] || die "that was several lines; nothing stored. Pipe it in instead: kyqs-ai put-secret $1 $2 <file"
 	else
@@ -459,18 +462,26 @@ put_secret() {
 	v=${v#"${v%%[![:space:]]*}"}
 	v=${v%"${v##*[![:space:]]}"}
 	[ -n "$v" ] || die "empty secret; nothing stored"
-	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && : > '$2' && chmod 600 '$2' && cat > '$2'"
+	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || chmod 600 '$2'; } && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
 }
 
 # claim_run <run>: one launcher per run, so two agents never edit the same plan and state files.
+# mkdir is atomic; the lock goes on exit, and one left by a launcher that died is taken over.
+KYQS_LOCK=''
 claim_run() {
-	local pid
-	pid=$(cat "$1/.launcher.pid" 2>/dev/null) || true
-	if [ -n "$pid" ] && [ "$pid" != $$ ] && kill -0 "$pid" 2>/dev/null; then
-		die "kyqs-ai (process $pid) is still running an agent on $1; finish that one first (tmux ls lists a detached one). If no agent is running, delete $1/.launcher.pid."
+	local lock=$1/.launcher pid
+	if ! mkdir "$lock" 2>/dev/null; then
+		pid=$(cat "$lock/pid" 2>/dev/null) || true
+		if [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; then
+			die "another kyqs-ai${pid:+ (process $pid)} is running an agent on $1; finish that one first (tmux ls lists a detached one). If none is running, delete $lock."
+		fi
+		rm -rf "$lock"
+		mkdir "$lock" 2>/dev/null || die "another kyqs-ai just started on $1"
 	fi
-	echo $$ >"$1/.launcher.pid"
+	echo $$ >"$lock/pid"
+	KYQS_LOCK=$lock
+	trap 'rm -rf "$KYQS_LOCK"' EXIT
 }
 
 latest_run() {
@@ -493,9 +504,11 @@ run_agent() { # <run>
 		die "could not start the run's own ssh-agent"
 	}
 	eval "$env" >/dev/null
-	trap 'kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$KYQS_AGENT_DIR"' EXIT
+	trap 'kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$KYQS_AGENT_DIR" ${KYQS_LOCK:+"$KYQS_LOCK"}' EXIT
 	ssh-add -q -t 12h "$KEY" || say "kyquickstart cannot reach the servers: the key was not added to the run's ssh-agent"
 }
+
+ended() { say "The agent exited with status $1."; } # finish still runs: handover and reminders
 
 launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
 	local agent=$1 hands=$2 run=$3 kick=$4 t deny=''
@@ -525,17 +538,17 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
 }
 EOF
 		fi
-		(cd "$run" && claude "$kick")
+		(cd "$run" && claude "$kick") || ended $?
 		;;
 	codex)
 		local approval=on-request extra=()
 		[ "$hands" = yes ] && approval=never
 		grep -qx local "$run/hosts.txt" && extra=(--add-dir "$DATA")
 		(cd "$run" && codex -C "$run" -s workspace-write -c sandbox_workspace_write.network_access=true \
-			${extra[@]+"${extra[@]}"} -a "$approval" "$kick")
+			${extra[@]+"${extra[@]}"} -a "$approval" "$kick") || ended $?
 		;;
-	gemini) (cd "$run" && gemini -i "$kick") ;;
-	opencode) (cd "$run" && opencode --prompt "$kick") ;;
+	gemini) (cd "$run" && gemini -i "$kick") || ended $? ;;
+	opencode) (cd "$run" && opencode --prompt "$kick") || ended $? ;;
 	esac
 }
 
@@ -771,7 +784,7 @@ start() {
 		kick="$kick The user answered the interview in ./interview.yaml."
 	fi
 	dashboard_hint "$run"
-	launch "$agent" "$hands" "$run" "$kick" || say "The agent exited with status $?."
+	launch "$agent" "$hands" "$run" "$kick"
 	finish "$run"
 }
 
@@ -784,7 +797,7 @@ resume() {
 	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
 	handover_left "$run"
 	dashboard_hint "$run"
-	launch "$agent" "$hands" "$run" "You are resuming KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md, ./progress.log and ./feedback.md, and continue from the first unfinished step. Do not redo finished steps." || say "The agent exited with status $?."
+	launch "$agent" "$hands" "$run" "You are resuming KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md, ./progress.log and ./feedback.md, and continue from the first unfinished step. Do not redo finished steps."
 	finish "$run"
 }
 
@@ -823,7 +836,7 @@ upgrade() {
 	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
 	handover_left "$run"
 	dashboard_hint "$run"
-	launch "$agent" "$hands" "$run" "You are upgrading the Ky suite with KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md and ./feedback.md, and follow section 12 (Upgrade). The last upgraded: line in ./launch.txt names the kyquickstart versions before and after." || say "The agent exited with status $?."
+	launch "$agent" "$hands" "$run" "You are upgrading the Ky suite with KyQuickStart AI. Read ./PROMPT.md in full, then ./state.md and ./feedback.md, and follow section 12 (Upgrade). The last upgraded: line in ./launch.txt names the kyquickstart versions before and after."
 	finish "$run"
 }
 

@@ -150,6 +150,7 @@ done
 ok "add-cluster refuses a token that is not a plain JWT before kubectl reads it"
 printf '%s\n' "$kc" >"$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 kyqs hosts | grep -qF 'kube-old: added by an older kyqs-ai with your own kubeconfig' || fail "legacy cluster not reported: $(kyqs hosts)"
+STUB_SERVER=https://192.0.2.9:6443 kyqs add-cluster old "$kc" >/dev/null || fail "add-cluster could not repair an older registration"
 rm "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 ok "a cluster registered with the user's own kubeconfig is not handed to the agent"
 
