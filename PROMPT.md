@@ -91,7 +91,7 @@ The current directory is the run folder (private, mode 0700). In it:
 | `launch.txt` | Agent, mode, and the `launcher:` path. Write `kyqs-ai` commands for the user with that full path |
 | `bin/progress <phase> <item> <state> [note]` | Report status to the dashboard. States: `todo run ok warn fail wait skip` |
 | `bin/redact` | Filter for logs |
-| `bin/handover .` | Builds `handover.txt` from your `handover.tsv` (you never open the result) |
+| `bin/handover .` | The launcher's: builds `handover.txt` from your `handover.tsv` after you exit. Do not run it |
 | `state.md` | **You write**: plan, decisions, created resources, current step. Lets a later session resume |
 | `feedback.md` | **You write**: the test report (section 9). Update it as you go, not at the end |
 | `install-guide-draft.md` | **You write** at the end: the clean install path that worked |
@@ -122,7 +122,8 @@ The user wants to hand you the job and walk away. Interrupt them as little as po
 ## 3. Interview (one message, then wait)
 
 Start with `./bin/progress preflight interview wait "answer the questions in the agent window"`.
-Read `hosts.txt` first and check each target answers (`./bin/on <target> 'docker info >/dev/null'`).
+Read `hosts.txt` first and check each `local` and `kyq-*` target answers (`./bin/on <target> 'docker info >/dev/null'`);
+a `kube-*` target is checked by `kyquickstart preflight` (section 6), not by `./bin/on`.
 If `local` is a target, it is a personal computer: say that apps stop when it sleeps or shuts
 down, and that other devices reach it only at its LAN address (ask whether that address is
 fixed).
@@ -131,7 +132,8 @@ If `./interview.yaml` exists, the user already answered this interview in the la
 setup form: do not send the form. Take every answer from the file (`agent` leaves a placement
 to you), check it against the rules below and section 4, and ask only about an answer that
 breaks them or a question it leaves open (such as the DNS provider when it is not
-Cloudflare). Record the answers in `state.md` as from the interview.
+Cloudflare). `proxy: "new-npm:<target>"` on a Docker target means stock NPM by its README
+(section 4). Record the answers in `state.md` as from the interview.
 
 Otherwise keep the interview short: a dense first message was unreadable in practice. Send a
 **numbered form with your recommended answer already filled in** for each item, one line
@@ -460,9 +462,10 @@ Record their answers in `feedback.md`.
 Sections: one per app, plus `Suite` (organization, admin and everyday logins), `Servers`
 (each target and what runs there), `Proxy` (NPM admin URL and login if you
 installed it). Include every secret a human might need: identity passwords, break-glass
-admins, NPM admin, recovery pairing state. Run
-`./bin/handover . >/dev/null` to check it resolves (exit 0); **never open `handover.txt`**.
-The launcher shows it to the user after you exit.
+admins, NPM admin, recovery pairing state. Check that each `secret` location exists with
+`./bin/on <target> 'test -s <path>'`. Do not run `./bin/handover` yourself: it writes every
+password into `handover.txt` in your folder. The launcher builds it and shows it to the user
+after you exit; **never open `handover.txt`**.
 
 ## 9. Feedback report (`feedback.md`) — every run delivers one
 
@@ -582,6 +585,6 @@ names the versions before and after. Skip the interview and install: sections 0,
    Kubernetes KyYard, `handoff` is a command for the user (section 0).
 6. Verify as in section 8 for the upgraded apps: `status`, `verify-edge`, and one batch of
    browser checks (admin and everyday sign-in to each upgraded app). Update `handover.tsv` if
-   anything in it changed and check it with `./bin/handover . >/dev/null`.
+   anything in it changed and check each new `secret` location as in section 8.
 7. Add an `## Upgrade <date>: <old> -> <new>` section to `feedback.md`, then finish as in
    section 11 with `./bin/progress upgrade suite ok` in place of its first step.

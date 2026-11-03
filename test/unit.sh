@@ -52,11 +52,13 @@ wait "$live" 2>/dev/null || true
 ok "live dashboard frame fits the screen and clears each line to its end"
 
 r=$(printf '%s\n' 'Username: admin | Password: abc123' 'KY_SESSION_SECRET=zz' 'Bearer eyJ.a.b' 'keyboard' \
-	'Pairing Code: 482913' '- [ap_1] kypulse (kypulse) — Code: 731058, Status: pending' 'listening on 8095 pid 123456' | "$ROOT/bin/redact")
-grep -qE 'abc123|zz|eyJ|482913|731058' <<<"$r" && fail "redact leaked: $r"
+	'Pairing Code: 482913' '- [ap_1] kypulse (kypulse) — Code: 731058, Status: pending' 'listening on 8095 pid 123456' \
+	'DATABASE_URL=postgres://ky:S3cretPw@db:5432/ky' 'connecting to redis://:hunter2@redis:6379' 'see https://example.com:8443/a@b' | "$ROOT/bin/redact")
+grep -qE 'abc123|zz|eyJ|482913|731058|S3cretPw|hunter2' <<<"$r" && fail "redact leaked: $r"
+grep -qF 'https://example.com:8443/a@b' <<<"$r" || fail "redact mangled a URL without credentials: $r"
 grep -q 'pid 123456' <<<"$r" || fail "redact masked a number on an unrelated line"
 grep -qx keyboard <<<"$r" || fail "redact mangled a plain line"
-ok "redact masks password, secret, bearer and pairing-code values"
+ok "redact masks password, secret, bearer, URL-credential and pairing-code values"
 
 printf 'pw-1\n' >"$work/pw"
 printf 'A\turl\tSite\thttps://a\nA\tsecret\tPassword\tlocal:%s/pw\nA\tsecret\tEscape\tlocal:%s/../pw\nA\tstep\tEnrol MFA\tbrowser\n' "$work" "$work" >"$work/handover.tsv"
@@ -98,7 +100,12 @@ for want in 'domain: "lab.example.com"' 'exposure: per-app' 'internal_domain: "l
 done
 grep -q kyyard "$y" && fail "interview: KyYard selected without a release kyquickstart"
 printf 'lab.example.com\n\nq' | "$ROOT/bin/interview" "$f" >/dev/null && fail "interview: q did not quit"
-ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; q quits"
+# A Docker-only site can ask for a new NPM too: the default, as in the chat interview.
+printf 'kyq-core\n' >"$f/hosts.txt"
+printf 'lab.example.com\n\n\n\n\n\nOrg\nboss.adm\nboss@example.com\nowner1\nme@example.com\n\n\n\n' |
+	"$ROOT/bin/interview" "$f" >/dev/null || fail "interview (Docker only): did not finish"
+grep -qF 'proxy: "new-npm:kyq-core"' "$y" || fail "interview: no new NPM offered on a Docker target: $(grep proxy "$y")"
+ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; offers NPM on Docker; q quits"
 
 data=$work/srv-ky
 mkdir -p "$data"
@@ -108,11 +115,43 @@ out=$(printf '\n  tok-3n9 x\t\n\n' | put "$data/app/token" 2>&1) || fail "put-se
 # shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
 [ "$(ls -l "$data/app/token" | cut -c1-10)" = -rw------- ] || fail "put-secret file not 0600"
 grep -q tok-3n9 <<<"$out" && fail "put-secret echoed the secret"
+chmod 644 "$data/app/token"
+printf 'tok-2' | put "$data/app/token" >/dev/null 2>&1 || fail "put-secret over an existing file"
+# shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
+[ "$(ls -l "$data/app/token" | cut -c1-10)" = -rw------- ] || fail "put-secret kept an existing file's looser mode"
 for blank in '' $'\n \t\n'; do
 	printf '%s' "$blank" | put "$data/app/empty" >/dev/null 2>&1 && fail "put-secret accepted a blank secret"
 	[ ! -e "$data/app/empty" ] || fail "a refused blank secret left a file"
 done
-ok "put-secret trims surrounding whitespace, stores 0600, never echoes, refuses a blank secret"
+ok "put-secret trims surrounding whitespace, stores 0600 (also over an existing file), never echoes, refuses a blank secret"
+
+# tmux_env: an already running tmux server would hand the new session its own environment.
+# shellcheck disable=SC2016 # expands in the inner bash
+envs=$(env -u KYQS_DATA KYQS_KYQUICKSTART='' KYQS_SSH_CONFIG=/x/reviewed bash -c 'source "$1"; tmux_env; printf "%s\n" "${TMUX_ENV[@]}"' t "$ROOT/kyqs-ai")
+grep -qx 'KYQS_KYQUICKSTART=' <<<"$envs" || fail "tmux_env dropped a set-but-empty KYQS_KYQUICKSTART: $envs"
+grep -qx 'KYQS_SSH_CONFIG=/x/reviewed' <<<"$envs" || fail "tmux_env dropped KYQS_SSH_CONFIG: $envs"
+grep -q '^PATH=' <<<"$envs" || fail "tmux_env dropped PATH: $envs"
+grep -q '^KYQS_DATA' <<<"$envs" && fail "tmux_env invented an unset KYQS_DATA: $envs"
+ok "tmux sessions keep the selected profiles, paths and an empty KYQS_KYQUICKSTART"
+
+# run_agent: the run's own one-key ssh-agent follows the run's kyquickstart copy, not PATH, and a
+# failed start never falls back to (or kills) the user's agent.
+ra=$work/run-agent
+mkdir -p "$ra/run/bin" "$ra/bin"
+printf 'kyq-core\n' >"$ra/run/hosts.txt"
+printf '#!/bin/sh\necho 0.4.2.10\n' >"$ra/run/bin/kyquickstart"
+# shellcheck disable=SC2016 # expands in the stub, not here
+printf '#!/bin/sh\n[ -z "$KYQS_TEST_AGENT_FAIL" ] || exit 1\necho "SSH_AUTH_SOCK=$3; export SSH_AUTH_SOCK; SSH_AGENT_PID=4242; export SSH_AGENT_PID;"\n' >"$ra/bin/ssh-agent"
+printf '#!/bin/sh\nexit 0\n' >"$ra/bin/ssh-add"
+chmod +x "$ra/run/bin/kyquickstart" "$ra/bin/ssh-agent" "$ra/bin/ssh-add"
+# shellcheck disable=SC2016 # expands in the inner bash
+probe='source "$1"; KYQ_BIN=; trap - EXIT; run_agent "$2"; trap - EXIT; rm -rf "${KYQS_AGENT_DIR:-}"; echo "$SSH_AGENT_PID"'
+[ "$(PATH="$ra/bin:$PATH" SSH_AGENT_PID=1 bash -c "$probe" t "$ROOT/kyqs-ai" "$ra/run")" = 4242 ] ||
+	fail "run_agent skipped the run's own agent without kyquickstart on PATH"
+out=$(KYQS_TEST_AGENT_FAIL=1 PATH="$ra/bin:$PATH" SSH_AGENT_PID=1 bash -c "$probe" t "$ROOT/kyqs-ai" "$ra/run" 2>&1) &&
+	fail "run_agent went on with the user's agent after its own failed to start: $out"
+grep -q "could not start the run's own ssh-agent" <<<"$out" || fail "run_agent failure message: $out"
+ok "run_agent follows the run's kyquickstart and refuses to fall back to the user's agent"
 
 effective=$(KYQS_SSH_CONFIG='' "$ROOT/bin/ssh-policy" -G -F /dev/null policy-check.invalid 2>/dev/null)
 grep -qx 'requiredrsasize 2048' <<<"$effective" || fail 'SSH RSA floor missing'
@@ -263,5 +302,23 @@ kyqs_up "$old" >/dev/null || fail "upgrade to 0.4.2.11: $(kyqs_up "$old")"
 [ "$(ls -i "$old/bin/kyquickstart")" != "$ino" ] || fail 'upgrade overwrote the run binary in place'
 cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade to 0.4.2.11 did not replace the binary'
 ok 'upgrade refreshes the run, records both versions, starts the agent on section 12, refuses a downgrade and replaces a running binary'
+
+# A repeated upgrade (the first was interrupted) keeps the real "before" version as the last record.
+lines=$(grep -c '^upgraded: ' "$old/launch.txt")
+(cd "$st" && kyqs_up "runs/${old##*/}") >/dev/null || fail "upgrade with a relative run path: $(cd "$st" && kyqs_up "runs/${old##*/}")"
+[ "$(grep -c '^upgraded: ' "$old/launch.txt")" = "$lines" ] || fail "a same-version upgrade added a record: $(cat "$old/launch.txt")"
+grep -q 'section 12 (Upgrade)' "$old/kickoff.txt" || fail 'relative run path: agent not started in the run'
+printf '#!/bin/sh\nexit 3\n' >"$ug/bin/claude"
+out=$(kyqs_up "$old") || true
+grep -q 'agent exited with status 3' <<<"$out" || fail "a failing agent's status not reported: $out"
+grep -q 'agent session ended' <<<"$out" || fail "a failing agent skipped the end of session: $out"
+sleep 30 &
+busy=$!
+echo "$busy" >"$old/.launcher.pid"
+out=$(kyqs_up "$old") && fail "upgrade ran beside another live launcher: $out"
+kill "$busy" 2>/dev/null || true
+wait "$busy" 2>/dev/null || true
+grep -q 'still running an agent' <<<"$out" || fail "busy run refusal: $out"
+ok 'upgrade repeats without a false record, takes a relative run path, finishes after a failing agent and refuses a busy run'
 
 echo "unit: all passed"

@@ -33,7 +33,7 @@ the install uses, so the agent stops when it needs you, not for every `ssh`:
 
 | Agent | Hands-off pre-approves | Supervised |
 |---|---|---|
-| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover` or `./bin/kyquickstart`, plus the Read, Edit and Write tools with no path limit | normal prompts |
+| Claude Code | The launcher writes the run folder's `.claude/settings.json`, allowing any command starting with `ssh`, `scp`, `git clone`, `git -C`, `git ls-remote`, `curl`, `dig`, `getent`, `./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover` or `./bin/kyquickstart`, plus the Read, Edit and Write tools with no path limit except Read on `~/.ssh`, `~/.kube`, the agent's kubeconfigs and `handover.txt` | normal prompts |
 | Codex | Runs `codex -s workspace-write -c sandbox_workspace_write.network_access=true -a never`: every command runs without asking, writes on this computer stay in the run folder (and `/srv/ky` when this computer is a target), network is on | same sandbox, `-a on-request` |
 | Gemini CLI, opencode | not offered | normal prompts |
 

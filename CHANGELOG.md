@@ -6,6 +6,21 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 
 ## Unreleased
 
+- Hostile-review fixes. The agent no longer builds `handover.txt` (every password) in its own
+  folder: it checks secret locations with `test -s`, and Claude Code hands-off denies Read on
+  that sheet, `~/.ssh` and `~/.kube`. `revoke kube-<name>` and `add-cluster` refuse an admin
+  kubeconfig for a different cluster instead of reporting success or moving the target. tmux
+  sessions keep `KYQS_*`, `GODEBUG`, `XDG_STATE_HOME` and `PATH` when a tmux server is already
+  running, and the dashboard pane opens on tmux before 3.1. `put-secret` makes an existing file
+  0600 and refuses a multi-line paste instead of passing its other lines to your shell. A
+  resumed run gets its own ssh-agent whenever it has its own `kyquickstart`, a failed agent
+  start no longer falls back to yours, and a `kyquickstart` in `~/.local/bin` is found off PATH.
+  A failing agent or printer no longer skips the handover and revoke reminders; a cancelled
+  setup form leaves no run behind; one launcher per run; `upgrade` takes a relative run path
+  and does not record a same-version upgrade. `add-host` fails when kyops cannot use Docker,
+  `revoke-host.sh` ends kyops's sessions, `prepare-host.sh` works without per-user groups,
+  `redact` masks credentials in URLs, and the setup form offers a new NPM on Docker targets.
+
 - `./kyqs-ai upgrade [run-dir]` upgrades an installed suite. It downloads the newest
   `kyquickstart` release into the run (the latest one by default), refreshes the run's prompt
   and helpers, records both versions in `launch.txt`, and starts the run's agent on the new

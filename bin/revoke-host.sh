@@ -20,4 +20,11 @@ if id -nG "$U" | tr ' ' '\n' | grep -qx docker; then
 fi
 usermod --lock --expiredate 1 "$U"
 echo "revoked: $U has no keys, no docker access and an expired account."
-echo "Already-open SSH sessions end when they disconnect. Apps and /srv/ky are untouched."
+# A process keeps the docker group it started with. Ending kyops's login sessions stops them;
+# the apps run under Docker, not in those sessions, so they keep running.
+if command -v loginctl >/dev/null 2>&1 && loginctl terminate-user "$U" 2>/dev/null; then
+	echo "Its open sessions and their processes were ended. Apps and /srv/ky are untouched."
+else
+	echo "Already-open SSH sessions, and processes they started, keep docker access until they end;"
+	echo "check with: ps -u $U. Apps and /srv/ky are untouched."
+fi
