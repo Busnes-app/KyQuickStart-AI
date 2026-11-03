@@ -37,7 +37,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends openssh
  && rm -rf /var/lib/apt/lists/* && mkdir -p /run/sshd \
  && groupadd docker && useradd -m -s /bin/bash admin \
  && echo 'admin ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/admin \
- && printf '#!/bin/sh\ncase "$*" in\n  "version --format"*) echo 99.0-stub ;;\n  *) exit 0 ;;\nesac\n' >/usr/local/bin/docker \
+ && printf '#!/bin/sh\ncase "$*" in\n  "version --format"*) [ ! -e /tmp/docker-broken ] || exit 1; echo 99.0-stub ;;\n  *) exit 0 ;;\nesac\n' >/usr/local/bin/docker \
  && chmod +x /usr/local/bin/docker
 CMD ["/usr/sbin/sshd", "-D", "-e"]
 EOF
@@ -115,7 +115,7 @@ ok "add-host --prepared pins only after the user confirms the fingerprint"
 cat >"$work/bin/kubectl" <<'EOF2'
 #!/bin/sh
 case "$*" in
-*"config view"*server}) echo https://192.0.2.1:6443 ;;
+*"config view"*server}) echo "${STUB_SERVER:-https://192.0.2.1:6443}" ;;
 *" apply -f -"*) cat >/dev/null ;;
 *"jsonpath={.data.token}"*) printf '%s' "${STUB_TOKEN:-c3R1Yi5zdHViLnRva2Vu}" ;; # stub.stub.token
 *"auth can-i"*) echo "$*" >>"${STUB_CANI:-/dev/null}" ;;
@@ -144,12 +144,13 @@ ok "add-cluster needs kyquickstart and a private kubeconfig, and writes a Servic
 evil=$(printf 'a.b.c\n    exec: {command: /bin/touch, args: [%s/pwned], apiVersion: client.authentication.k8s.io/v1}\n' "$work" | base64 -w0)
 out=$(STUB_TOKEN=$evil STUB_CANI=$work/cani kyqs add-cluster evil "$kc" 2>&1) && fail "accepted a multiline token"
 grep -q 'is not a JWT' <<<"$out" || fail "wrong refusal: $out"
-for f in "$work/cani" "$XDG_STATE_HOME"/kyquickstart-ai/clusters/kube-evil{,.tmp}; do
+for f in "$work/cani" "$XDG_STATE_HOME"/kyquickstart-ai/clusters/{kube-evil,.kube-evil.tmp}; do
 	[ ! -e "$f" ] || fail "a malformed token reached kubectl or the state: $f"
 done
 ok "add-cluster refuses a token that is not a plain JWT before kubectl reads it"
 printf '%s\n' "$kc" >"$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 kyqs hosts | grep -qF 'kube-old: added by an older kyqs-ai with your own kubeconfig' || fail "legacy cluster not reported: $(kyqs hosts)"
+STUB_SERVER=https://192.0.2.9:6443 kyqs add-cluster old "$kc" >/dev/null || fail "add-cluster could not repair an older registration"
 rm "$XDG_STATE_HOME/kyquickstart-ai/clusters/kube-old"
 ok "a cluster registered with the user's own kubeconfig is not handed to the agent"
 
@@ -191,11 +192,23 @@ cmp -s "$ROOT/bin/ssh-policy" "$run/bin/ssh-policy" || fail "run has no copy of 
 grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
 grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"
 grep -qF "\"Read(/$agentkc)\"" "$run/.claude/settings.json" || fail "kubeconfig not denied to Read: $(cat "$run/.claude/settings.json")"
+# shellcheck disable=SC2088 # literal Claude Code rule paths, not shell paths
+for denied in './handover.txt' '~/.ssh/**' '~/.kube/**'; do
+	grep -qF "\"Read($denied)\"" "$run/.claude/settings.json" || fail "$denied not denied to Read: $(cat "$run/.claude/settings.json")"
+done
 agentfp=$(ssh-keygen -lf "$HOME/.ssh/kyquickstart-ai/id_ed25519.pub" | awk '{print $2}')
 if [ "$(wc -l <"$run/agentkeys.txt")" -ne 1 ] || ! grep -qF "$agentfp" "$run/agentkeys.txt"; then
 	fail "the run's ssh-agent should hold the agent key alone: $(cat "$run/agentkeys.txt")"
 fi
-ok "the run gets kyquickstart, its state folder, its own one-key ssh-agent, a denied kubeconfig and each target's facts"
+ok "the run gets kyquickstart, its state folder, its own one-key ssh-agent, denied credentials and handover sheet, and each target's facts"
+out=$(STUB_SERVER=https://192.0.2.9:6443 kyqs add-cluster lab "$kc" 2>&1) && fail "add-cluster moved kube-lab to another cluster: $out"
+grep -q 'kube-lab is registered for https://192.0.2.1:6443' <<<"$out" || fail "wrong refusal: $out"
+grep -qx '    server: https://192.0.2.1:6443' "$agentkc" || fail "a refused add-cluster changed kube-lab"
+out=$(STUB_SERVER=https://192.0.2.9:6443 kyqs revoke kube-lab "$kc" 2>&1) && fail "revoke ran against another cluster: $out"
+grep -q 'Nothing was deleted' <<<"$out" || fail "wrong refusal: $out"
+grep -q token "$agentkc" || fail "a refused revoke dropped the token"
+[ ! -e "$XDG_STATE_HOME/kyquickstart-ai/revoked/kube-lab" ] || fail "a refused revoke marked kube-lab revoked"
+ok "add-cluster and revoke refuse an admin kubeconfig for a different cluster"
 kyqs revoke kube-lab "$kc" >/dev/null || fail "revoke kube-lab"
 grep -q token "$agentkc" && fail "revoke left the token on disk"
 kyqs hosts | grep -qF 'kube-lab: access revoked' || fail "hosts does not say kube-lab was revoked: $(kyqs hosts)"
@@ -245,6 +258,11 @@ EOF2
 ) || exit 1
 ok "this computer as the only target: no SSH, data dir, local secrets, handover, revoke local"
 
+docker exec "$name" touch /tmp/docker-broken
+out=$(kyqs add-host core "$ip" "$port" admin 2>&1) && fail "add-host said ready while kyops could not use Docker: $out"
+grep -q 'cannot log in or reach Docker' <<<"$out" || fail "wrong refusal: $out"
+docker exec "$name" rm /tmp/docker-broken
+ok "add-host fails when kyops cannot use Docker"
 kyqs revoke core admin >/dev/null 2>&1 || fail "revoke failed"
 ssh -o ConnectTimeout=5 kyq-core true 2>/dev/null && fail "kyops can still log in after revoke"
 docker exec "$name" id -nG kyops | grep -qw docker && fail "kyops still in docker group"

@@ -52,7 +52,9 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 
 - Secret values never enter the agent's conversation: generated on servers, moved by pipe,
   supplied by the user through `put-secret`, resolved into the 0600 handover only by
-  `bin/handover` after the agent exits. `handover.tsv` holds locations, never values.
+  `bin/handover` after the agent exits; the agent checks locations with `test -s` and never
+  runs it. Claude hands-off denies Read on `handover.txt`, `~/.ssh` and `~/.kube`.
+  `handover.tsv` holds locations, never values.
   `put-secret` keeps the value off argv and out of output, trims surrounding whitespace and
   refuses an empty one.
 - The agent's server login `kyops` is key-only (`restrict`), passwordless, sudo-less, in the
@@ -72,7 +74,9 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   once the token works. Docs must say pod create plus Secret get everywhere can escalate.
   `revoke kube-<name> <admin-kubeconfig>` deletes binding, role, token and ServiceAccount, in
   that order, empties that file and leaves `<state>/revoked/kube-<name>`; `add-cluster`
-  removes it. Add-host names may not start with `kube-`.
+  removes it. Both refuse an admin kubeconfig whose server is not the registered one.
+  Add-host names may not start with `kube-`.
+- One launcher per run (lock folder `<run>/.launcher`); a cancelled setup form removes its new run.
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is
   refused. The fingerprint comes from the server over the admin's own login or from the user.
   `targets.tsv` hands that fingerprint to kyquickstart's `--trust-host-key`; kyquickstart pins

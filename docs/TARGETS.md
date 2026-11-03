@@ -94,6 +94,9 @@ creates RBAC objects, which this account cannot; the agent gives you that step.
 the API server stops accepting the token within seconds. Apps, their `kyq-<app>` namespaces
 and the `kyqs-ai` namespace stay. `hosts` then lists the cluster as revoked, and `add-cluster`
 gives the agent access again. `remove-cluster` warns if the ServiceAccount still exists.
+Both `revoke kube-<name>` and `add-cluster` refuse an admin kubeconfig whose server is not the
+one `kube-<name>` was registered for, so a wrong context neither "revokes" nothing nor moves the
+target, and the runs that use it, to another cluster.
 A cluster added by an earlier version recorded your own kubeconfig; `hosts` reports it as not
 ready until you run `add-cluster` again.
 

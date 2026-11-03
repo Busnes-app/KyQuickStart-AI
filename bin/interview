@@ -209,6 +209,10 @@ q_proxy() {
 		items+="New Nginx Proxy Manager on $k (kyquickstart installs it)"$'\n'
 		opts+=("new-npm:$k")
 	done
+	for k in $(printf '%s\n' "$TARGETS" | grep -v '^kube-' || true); do
+		items+="New Nginx Proxy Manager on $k (stock NPM by its README)"$'\n'
+		opts+=("new-npm:$k")
+	done
 	items+=$'An Nginx Proxy Manager I already run (the agent adds only its own hosts)\nMy own reverse proxy'
 	opts+=(existing-npm own)
 	local marks='' i

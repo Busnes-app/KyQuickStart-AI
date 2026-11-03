@@ -34,12 +34,13 @@ usermod --lock --expiredate '' "$U" # key-only; clears an expiry left by revoke-
 usermod -aG docker "$U"
 
 home=$(getent passwd "$U" | cut -d: -f6)
-install -d -m 700 -o "$U" -g "$U" "$home/.ssh"
+g=$(id -gn "$U") # not always a group of its own (USERGROUPS_ENAB no)
+install -d -m 700 -o "$U" -g "$g" "$home/.ssh"
 ak=$home/.ssh/authorized_keys
-[ -e "$ak" ] || install -m 600 -o "$U" -g "$U" /dev/null "$ak"
+[ -e "$ak" ] || install -m 600 -o "$U" -g "$g" /dev/null "$ak"
 line="restrict $key"
 grep -qxF "$line" "$ak" || printf '%s\n' "$line" >>"$ak"
-install -d -m 750 -o "$U" -g "$U" "$DATA"
+install -d -m 750 -o "$U" -g "$g" "$DATA"
 
 if command -v sshd >/dev/null && sshd -T 2>/dev/null | grep -qiE '^(allowusers|allowgroups) '; then
 	echo "WARNING: sshd has AllowUsers/AllowGroups; add $U there or the agent cannot log in."

@@ -74,19 +74,20 @@ kubeconfigs), and a server that is already compromised.
 For Claude Code the launcher writes `.claude/settings.json` in the run folder (lines 356-369):
 allowed are `ssh`, `scp`, `curl`, `dig`, `getent`, `git clone`/`-C`/`ls-remote`, the run's
 helpers (`./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover`, `./bin/kyquickstart`)
-with any arguments, and the Read, Edit and Write tools with no path limit. The one deny is `Read`
-on each registered kubeconfig. For Codex, `-a never` inside its `workspace-write` sandbox with
+with any arguments, and the Read, Edit and Write tools with no path limit. The denies are `Read`
+on each registered kubeconfig, on `~/.ssh/**` and `~/.kube/**`, and on the run's `handover.txt`. For Codex, `-a never` inside its `workspace-write` sandbox with
 network on (lines 373-378). Gemini CLI and opencode get no hands-off mode.
 
 The allow-list removes prompts for the commands an install needs. **It is not a sandbox**:
 
 - `./bin/on local '<cmd>'` runs any command on this computer as you, and `./bin/on kyq-<name>`
   any command on a server (`bin/on`).
-- The kubeconfig deny covers the Read tool only. `curl file://…`, `./bin/on local cat …` and
+- The Read denies cover the Read tool only. `curl file://…`, `./bin/on local cat …` and
   `scp` to a server are allowed and reach the same file. The deny stops an accidental read, not a
   determined one.
-- `./bin/handover` is allowed and the Read tool is unrestricted, so an agent that ran it and then
-  read `handover.txt` would see every password. The prompt tells it never to open the result.
+- `./bin/handover` is allowed. The prompt tells the agent not to run it (it checks secret
+  locations with `test -s` instead), and Read is denied `handover.txt`; `resume` and `upgrade`
+  remind you to shred a sheet left in the run folder.
 - `ssh`, `scp` and `curl` are allowed for any host, so data can leave over the network.
 
 [Agent permissions](AGENT-PERMISSIONS.md) says this ("These rules are not limited to your `kyq-*` servers", "an instruction, not
@@ -119,7 +120,7 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 | Secrets in files others can read | `umask 077` for the run folder, secrets and the handover; kubeconfigs must be private | `kyqs-ai` line 582, `bin/handover`, `put_secret` |
 | Secrets in logs the agent reads | `bin/redact` masks password/secret/token/key assignments, bearer and basic credentials and six-digit codes on lines that mention a pairing code; a backstop, not a guarantee | `bin/redact`, `test/unit.sh` |
 | Tampered or replayed `kyquickstart` download | `gh` only, under `GODEBUG=fips140=on`; SHA-256 against GitHub's published asset digest; `gh attestation verify --deny-self-hosted-runners --cert-identity …/release-image.yml@refs/tags/v<tag>` | `kyqs-ai` `kyq_update`, `test/unit.sh` |
-| Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership and expires the account; `revoke kube-<name>` deletes the ServiceAccount, its token and its ClusterRole and binding | `bin/revoke-host.sh`, `revoke_cluster`, `test/e2e.sh`, `test/kube.sh` |
+| Lingering access | `revoke` empties `authorized_keys`, removes `docker` group membership, expires the account and ends its login sessions where `loginctl` exists (a running process keeps the groups it started with); `revoke kube-<name>` deletes the ServiceAccount, its token and its ClusterRole and binding, and refuses an admin kubeconfig for another cluster | `bin/revoke-host.sh`, `revoke_cluster`, `test/e2e.sh`, `test/kube.sh` |
 | Cluster-admin handed to the agent | The agent's kubeconfig is a ServiceAccount with the preflight list and `pods/log`; denied RBAC, nodes, ServiceAccounts, namespace and volume delete, Secret list | `kube_grant`, `test/kube.sh` |
 | Custom kubectl crypto backend differs from upstream Go | Metadata and a successful startup probe do not establish vendor key-floor semantics; only the named clients are qualified. Run the full native TLS matrix before selecting a custom client, even when its OpenSSL FIPS provider is available | `docs/STRONG-KUBERNETES-TLS.md`, `test/kube-tls.sh` |
 
