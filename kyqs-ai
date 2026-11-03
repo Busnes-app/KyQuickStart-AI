@@ -13,8 +13,11 @@ RUNS=$STATE/runs
 LOCAL=$STATE/local-host # present when this computer is an install target
 REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
 CLUSTERS=$STATE/clusters # one file per kube-<name>: the agent's ServiceAccount kubeconfig
-# set but empty: none. kyq_update installs to ~/.local/bin, which macOS does not put on PATH.
-KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || { [ ! -x "$HOME/.local/bin/kyquickstart" ] || echo "$HOME/.local/bin/kyquickstart"; })}
+KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || true)} # set but empty: none
+# kyq_update installs to ~/.local/bin, which macOS does not put on PATH.
+if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -z "$KYQ_BIN" ] && [ -x "$HOME/.local/bin/kyquickstart" ]; then
+	KYQ_BIN=$HOME/.local/bin/kyquickstart
+fi
 DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
 AGENTS=(claude codex gemini opencode)
 
