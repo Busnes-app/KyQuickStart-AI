@@ -21,6 +21,23 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   `revoke-host.sh` ends kyops's sessions, `prepare-host.sh` works without per-user groups,
   `redact` masks credentials in URLs, and the setup form offers a new NPM on Docker targets.
 
+- On a Kubernetes-only site, the setup form and the agent no longer send you to `put-secret`
+  (which takes no `kube-*` target) for the Cloudflare DNS token. The agent gives you the
+  `kubectl` command that stores it as KyQuickStart's `kyq-edge/cloudflare-dns` Secret from a
+  hidden prompt.
+- Hostile-review pass 2. `revoke kube-<name>` with no registration (after `remove-cluster`,
+  or a mistyped name) refuses when the cluster has no such ServiceAccount, instead of reporting
+  success, and says which cluster it revoked on. `put-secret` refuses a directory instead of
+  making it 0600, and loads the key into ssh-agent first, as `handover` does for server secrets. Ctrl-C in the
+  setup form removes the unstarted run, like `q`. The run's own ssh-agent keeps the key for
+  the whole run instead of 12 hours. The tmux session gets this shell's environment (API keys,
+  proxy settings) even when a tmux server is already running, and no longer picks up a stale
+  `KYQS_*` setting from it. Claude hands-off also denies Read on older runs' `handover.txt` and
+  every registered kubeconfig. A newer release installed in `~/.local/bin` beside a read-only
+  system copy is the one used. `add-host` refuses to move an alias to another port, a failing pager no
+  longer skips the closing reminders, a revoked server no longer asks for the key, and
+  `revoke kyq-<name>` works for a server named `<name>`.
+
 - `./kyqs-ai upgrade [run-dir]` upgrades an installed suite. It downloads the newest
   `kyquickstart` release into the run (the latest one by default), refreshes the run's prompt
   and helpers, records both versions in `launch.txt`, and starts the run's agent on the new

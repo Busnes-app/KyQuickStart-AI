@@ -68,7 +68,9 @@ ok "add-host prepares kyops (docker group, no sudo) and pins the host key"
 out=$(kyqs add-host core "$ip" "$port" admin 2>&1) || fail "re-run add-host: $out"
 [ "$(grep -c '^kyq-core ' "$HOME/.ssh/kyquickstart-ai/known_hosts")" = 1 ] || fail "duplicate pin"
 [ "$(docker exec "$name" grep -c restrict /home/kyops/.ssh/authorized_keys)" = 1 ] || fail "duplicate key"
-ok "add-host is idempotent"
+out=$(kyqs add-host core "$ip" "$((port + 1))" admin 2>&1) && fail "add-host re-run on another port kept the old one: $out"
+grep -q 'already points elsewhere' <<<"$out" || fail "wrong refusal: $out"
+ok "add-host is idempotent and refuses to move an alias to another port"
 
 for self in 127.0.0.1 localhost "$(hostname)"; do
 	out=$(kyqs add-host me "$self" 2>&1) && fail "add-host accepted this computer ($self)"
@@ -119,6 +121,7 @@ case "$*" in
 *" apply -f -"*) cat >/dev/null ;;
 *"jsonpath={.data.token}"*) printf '%s' "${STUB_TOKEN:-c3R1Yi5zdHViLnRva2Vu}" ;; # stub.stub.token
 *"auth can-i"*) echo "$*" >>"${STUB_CANI:-/dev/null}" ;;
+*"get serviceaccount/"*) [ -z "${STUB_NO_SA:-}" ] ;;
 esac
 EOF2
 chmod +x "$work/bin/kubectl"
@@ -191,7 +194,9 @@ cmp -s "$ROOT/bin/ssh-policy" "$run/bin/ssh-policy" || fail "run has no copy of 
 [ -d "$run/kyq" ] || fail "no kyquickstart state folder"
 grep -q 'Bash(./bin/kyquickstart:\*)' "$run/.claude/settings.json" || fail "kyquickstart not pre-approved"
 grep -qx 'kyquickstart: 0.0.0-stub' "$run/launch.txt" || fail "kyquickstart version not recorded"
-grep -qF "\"Read(/$agentkc)\"" "$run/.claude/settings.json" || fail "kubeconfig not denied to Read: $(cat "$run/.claude/settings.json")"
+for denied in "/$XDG_STATE_HOME/kyquickstart-ai/clusters/**" "/$XDG_STATE_HOME/kyquickstart-ai/runs/*/handover.txt"; do
+	grep -qF "\"Read($denied)\"" "$run/.claude/settings.json" || fail "$denied not denied to Read: $(cat "$run/.claude/settings.json")"
+done
 # shellcheck disable=SC2088 # literal Claude Code rule paths, not shell paths
 for denied in './handover.txt' '~/.ssh/**' '~/.kube/**'; do
 	grep -qF "\"Read($denied)\"" "$run/.claude/settings.json" || fail "$denied not denied to Read: $(cat "$run/.claude/settings.json")"
@@ -219,7 +224,10 @@ out=$(kyqs remove-cluster lab)
 grep -q 'revoke kube-lab' <<<"$out" || fail "remove-cluster did not warn that the ServiceAccount still works: $out"
 kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
 [ -f "$kc" ] || fail "remove-cluster touched the kubeconfig"
-ok "remove-cluster forgets the target, warns about a live ServiceAccount and leaves the admin kubeconfig"
+out=$(STUB_NO_SA=1 kyqs revoke kube-lab "$kc" 2>&1) && fail "revoke with no registration and no ServiceAccount reported success: $out"
+grep -q 'nothing was revoked' <<<"$out" || fail "wrong refusal: $out"
+kyqs revoke kube-lab "$kc" >/dev/null || fail "revoke after remove-cluster"
+ok "remove-cluster forgets the target, warns about a live ServiceAccount and leaves the admin kubeconfig; revoke then needs the ServiceAccount"
 
 # Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.
 (
@@ -263,7 +271,7 @@ out=$(kyqs add-host core "$ip" "$port" admin 2>&1) && fail "add-host said ready 
 grep -q 'cannot log in or reach Docker' <<<"$out" || fail "wrong refusal: $out"
 docker exec "$name" rm /tmp/docker-broken
 ok "add-host fails when kyops cannot use Docker"
-kyqs revoke core admin >/dev/null 2>&1 || fail "revoke failed"
+kyqs revoke kyq-core admin >/dev/null 2>&1 || fail "revoke failed"
 ssh -o ConnectTimeout=5 kyq-core true 2>/dev/null && fail "kyops can still log in after revoke"
 docker exec "$name" id -nG kyops | grep -qw docker && fail "kyops still in docker group"
 docker exec "$name" test -d /srv/ky/test || fail "revoke touched /srv/ky"

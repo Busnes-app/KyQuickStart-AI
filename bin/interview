@@ -32,6 +32,9 @@ if ! [ -x "$run/bin/kyquickstart" ] || [ "$("$run/bin/kyquickstart" version 2>/d
 	yard_ok=false
 fi
 
+# Ctrl-C ends the form as q does, so the launcher removes the unstarted run.
+trap 'exit 1' INT TERM HUP
+
 bold() { printf '\033[1m%s\033[0m' "$*"; }
 dim() { printf '\033[2m%s\033[0m' "$*"; }
 screen() { # <step> <title>
@@ -223,7 +226,13 @@ q_proxy() {
 	proxy=${opts[PICK]}
 	echo
 	echo "  Certificates:"
-	list 0 $'Let'"'"$'s Encrypt through Cloudflare DNS (you store the API token with put-secret)\nI bring my own certificates' \
+	# put-secret takes no kube-* target: there the token is a Secret the user creates.
+	local how='you store the API token with put-secret'
+	if [ -z "$(printf '%s\n' "$TARGETS" | grep -v '^kube-' || true)" ] || [[ $proxy == new-npm:kube-* ]]; then
+		how='you create the Secret with kubectl'
+		echo "  (Cloudflare DNS: the agent gives you the kubectl command.)"
+	fi
+	list 0 "Let's Encrypt through Cloudflare DNS ($how)"$'\nI bring my own certificates' \
 		"$([ "$certs" = cloudflare ] && echo '1 0' || echo '0 1')" ""
 	certs=cloudflare
 	[ "$PICK" = 1 ] && certs=own

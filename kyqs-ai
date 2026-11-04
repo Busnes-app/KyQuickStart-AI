@@ -215,7 +215,8 @@ add_host() {
 	ssh_setup
 	key_loaded
 	if grep -qx "Host $alias" "$CONF"; then
-		[ "$(ssh_connect -G "$alias" | awk '$1 == "hostname" {print $2}')" = "$addr" ] || die "$alias already points elsewhere; edit $CONF"
+		[ "$(ssh_connect -G "$alias" | awk '$1 == "hostname" || $1 == "port" {print $2}' | tr '\n' ' ')" = "$addr $((10#$port)) " ] ||
+			die "$alias already points elsewhere (another address or port); edit $CONF"
 	fi
 
 	local out='' k
@@ -403,6 +404,10 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 	server=$("$ROOT/bin/kubectl-policy" --kubeconfig "$2" config view --minify -o 'jsonpath={.clusters[0].cluster.server}')
 	[ -z "$was" ] || [ "$was" = "$server" ] ||
 		die "$1 is registered for $was, but $2 points at $server; switch $2 to that cluster and re-run. Nothing was deleted."
+	# With no registration (remove-cluster, or a typo) nothing says this is the right cluster.
+	if [ -z "$was" ] && [ ! -f "$REVOKED/$1" ] && ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" -n "$KUBE_NS" get "serviceaccount/$sa" >/dev/null 2>&1; then
+		die "found no ServiceAccount $KUBE_NS/$sa on $server (or could not reach it); nothing was revoked. Check the name, and that $2 is the cluster you added."
+	fi
 	# The binding first, so a revoke that dies halfway has already removed the rights.
 	if ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
 		! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" -n "$KUBE_NS" delete --ignore-not-found "secret/$sa" "serviceaccount/$sa" >/dev/null; then
@@ -411,7 +416,7 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 	mkdir -p "$REVOKED"
 	: >"$REVOKED/$1"
 	[ ! -f "$CLUSTERS/$1" ] || : >"$CLUSTERS/$1" # keep the target listed, without the dead token
-	say "revoked: ServiceAccount $KUBE_NS/$sa and its token are gone. Apps are untouched."
+	say "revoked on $server: ServiceAccount $KUBE_NS/$sa and its token are gone. Apps are untouched."
 	say "To give the agent access again: kyqs-ai add-cluster ${1#kube-} <admin-kubeconfig>"
 }
 
@@ -448,6 +453,7 @@ put_secret() {
 	local root=/srv/ky
 	[ "$1" = local ] && root=$DATA
 	[[ $2 == "$root"/* && $2 =~ ^/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under $root/"
+	[ "$1" = local ] || key_loaded
 	local v line='' more=''
 	if [ -t 0 ]; then
 		read -r -s -p "Paste the secret (hidden), then Enter: " v
@@ -465,7 +471,7 @@ put_secret() {
 	v=${v#"${v%%[![:space:]]*}"}
 	v=${v%"${v##*[![:space:]]}"}
 	[ -n "$v" ] || die "empty secret; nothing stored"
-	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || chmod 600 '$2'; } && cat > '$2'"
+	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || { [ -f '$2' ] && chmod 600 '$2'; } || { echo '$2 is not a file' >&2; exit 1; }; } && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
 }
 
@@ -514,7 +520,7 @@ run_agent() { # <run>
 	}
 	eval "$env" >/dev/null
 	trap 'kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$KYQS_AGENT_DIR" ${KYQS_LOCK:+"$KYQS_LOCK"}' EXIT
-	ssh-add -q -t 12h "$KEY" || say "kyquickstart cannot reach the servers: the key was not added to the run's ssh-agent"
+	ssh-add -q "$KEY" || say "kyquickstart cannot reach the servers: the key was not added to the run's ssh-agent"
 }
 
 ended() { say "The agent exited with status $1."; } # finish still runs: handover and reminders
@@ -525,12 +531,10 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
 	case $agent in
 	claude)
 		if [ "$hands" = yes ]; then
-			# Kubeconfig paths are validated to [A-Za-z0-9._/-], so they need no JSON escaping.
-			# The handover sheet and the user's own SSH keys and kubeconfigs hold what the agent must not see.
-			deny='"Read(./handover.txt)", "Read(~/.ssh/**)", "Read(~/.kube/**)"'
-			for t in $(grep '^kube-' "$run/hosts.txt" || true); do
-				deny="$deny, \"Read(/$CLUSTERS/$t)\""
-			done
+			# Every run's handover sheet, every registered kubeconfig and the user's own SSH keys and
+			# kubeconfigs hold what the agent must not see.
+			[[ $STATE != *[\"\\]* ]] || die "$STATE: a path with \" or \\ cannot go into the hands-off settings"
+			deny="\"Read(./handover.txt)\", \"Read(/$RUNS/*/handover.txt)\", \"Read(~/.ssh/**)\", \"Read(~/.kube/**)\", \"Read(/$CLUSTERS/**)\""
 			mkdir -p "$run/.claude"
 			cat >"$run/.claude/settings.json" <<EOF
 {
@@ -584,7 +588,7 @@ finish() {
 	if [ -f "$run/handover.tsv" ]; then
 		"$ROOT/bin/handover" "$run" || true
 		if [ -f "$run/handover.txt" ]; then
-			confirm "Show the handover sheet (passwords) on screen now?" && ${PAGER:-less} "$run/handover.txt"
+			if confirm "Show the handover sheet (passwords) on screen now?"; then ${PAGER:-less} "$run/handover.txt" || say "Could not show it: open $run/handover.txt yourself."; fi
 			if command -v lp >/dev/null && confirm "Send it to your default printer?"; then lp "$run/handover.txt" || say "Printing failed."; fi
 			say "Store it in your password manager, then: shred -u '$run/handover.txt'"
 		fi
@@ -672,6 +676,15 @@ latest_release() {
 older() { # <a> <b>: version a is older than b (X.Y.Z[.N])
 	[ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -1)" = "$1" ]
 }
+# kyq_update also installs to ~/.local/bin when the copy on PATH is in a folder it cannot write:
+# use that one once it is newer, or every start offers the same download again.
+KYQ_HOME_BIN=$HOME/.local/bin/kyquickstart
+if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -n "$KYQ_BIN" ] && [ "$KYQ_BIN" != "$KYQ_HOME_BIN" ] && [ ! -w "$(dirname "$KYQ_BIN")" ] &&
+	[ -x "$KYQ_HOME_BIN" ]; then
+	v=$("$KYQ_BIN" version 2>/dev/null | head -1) || true
+	# A development build is never replaced (kyq_update)
+	if [ "$v" != dev ] && older "$v" "$("$KYQ_HOME_BIN" version 2>/dev/null | head -1)"; then KYQ_BIN=$KYQ_HOME_BIN; fi
+fi
 
 # kyq_update: offers the latest kyquickstart release when the one in use is older or missing.
 # The download must match the digest GitHub publishes for it and the release workflow's build
@@ -756,7 +769,7 @@ start() {
 		(add_host "$n" "$a" "${p:-22}" "${u:-$USER}") || say "  not added; fix the problem above and try again"
 	done
 	[ -n "$(targets)" ] || die "no install targets: add this computer or a server"
-	[ -z "$(host_aliases)" ] || key_loaded
+	for t in $(host_aliases); do [ -f "$REVOKED/$t" ] || { key_loaded; break; }; done # revoked servers need no key
 	local t ready=() why
 	for t in $(targets); do
 		why=$(target_problem "$t")
@@ -826,10 +839,10 @@ upgrade() {
 	[ -f "$run/kyq/stack.yaml" ] || die "$run has no installed plan (kyq/stack.yaml); nothing to upgrade"
 	[ ! -t 0 ] || kyq_update
 	[ -n "$KYQ_BIN" ] || die "upgrading needs kyquickstart: install a release, or set KYQS_KYQUICKSTART"
+	claim_run "$run"
 	have=$(run_kyq_version "$run")
 	new=$("$KYQ_BIN" version | head -1)
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
-	claim_run "$run"
 	umask 077
 	run_files "$run"
 	# rename, not overwrite: the old binary may still be running (cp fails with "Text file busy")
@@ -861,6 +874,7 @@ revoke() {
 		say "since the agent used your own account here."
 		return
 	fi
+	grep -qx "Host kyq-$1" "$CONF" 2>/dev/null || set -- "${1#kyq-}" "${@:2}" # hosts lists servers as kyq-<name>
 	local alias=kyq-$1 admin=${2:-$USER}
 	grep -qx "Host $alias" "$CONF" 2>/dev/null || die "unknown server $alias"
 	remote_root "$(ssh_connect -G "$alias" | awk '$1 == "hostname" {print $2}')" "$(ssh_connect -G "$alias" | awk '$1 == "port" {print $2}')" \
@@ -872,13 +886,16 @@ revoke() {
 }
 
 # tmux_env: the settings a new tmux session would lose to an already running tmux server's
-# environment, as NAME=value words in TMUX_ENV (set but empty is kept: KYQS_KYQUICKSTART= means none).
+# environment, as env arguments in TMUX_ENV: -u NAME for an unset one, then NAME=value (set but
+# empty is kept: KYQS_KYQUICKSTART= means none).
 tmux_env() {
 	local v
 	TMUX_ENV=()
-	for v in PATH XDG_STATE_HOME GODEBUG KYQS_KYQUICKSTART KYQS_SSH_CONFIG KYQS_STRONG_KUBE_TLS KYQS_DATA; do
-		if declare -p "$v" >/dev/null 2>&1; then TMUX_ENV+=("$v=${!v}"); fi
+	for v in XDG_STATE_HOME GODEBUG KYQS_KYQUICKSTART KYQS_SSH_CONFIG KYQS_STRONG_KUBE_TLS KYQS_DATA; do
+		# env takes -u before NAME=value; an unset one must not come back from the server's environment
+		if declare -p "$v" >/dev/null 2>&1; then TMUX_ENV+=("$v=${!v}"); else TMUX_ENV=(-u "$v" ${TMUX_ENV[@]+"${TMUX_ENV[@]}"}); fi
 	done
+	TMUX_ENV+=("PATH=$PATH")
 }
 
 # Sourced by test/unit.sh for its functions only.
@@ -892,8 +909,16 @@ case $cmd in start | resume | upgrade)
 	# tmux is installed. The window stays open after the run, so its last lines can be read.
 	if [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
 		tmux_env
-		# shellcheck disable=SC2016 # $0, $@ and $? are the inner bash's, not this script's
-		exec tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '"$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$cmd" "$@"
+		# A running tmux server gives new sessions its own environment, not this shell's (API keys,
+		# proxies): pass it in a private file, not on argv, and delete it as the session starts.
+		# The terminal and tmux settings stay tmux's own.
+		envf=$(mktemp)
+		(unset TERM TERM_PROGRAM TERM_PROGRAM_VERSION TMUX TMUX_PANE SHLVL && export -p) >"$envf"
+		s=0
+		# shellcheck disable=SC2016 # $0, $1, $@ and $? are the inner bash's, not this script's
+		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '. "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?
+		rm -f "$envf"
+		exit "$s"
 	fi
 	;;
 esac
@@ -909,7 +934,11 @@ put-secret) put_secret "$@" ;;
 dashboard) "$ROOT/bin/dashboard" "${1:-$(latest_run)}" ;;
 resume) resume ;;
 upgrade) upgrade "$@" ;;
-handover) "$ROOT/bin/handover" "${1:-$(latest_run)}" ;;
+handover)
+	r=${1:-$(latest_run)}
+	! grep -qE $'\tsecret\t[^\t]*\tkyq-' "$r/handover.tsv" 2>/dev/null || key_loaded # only server secrets need it
+	"$ROOT/bin/handover" "$r"
+	;;
 revoke) revoke "$@" ;;
 -h | --help | help) usage ;;
 *)

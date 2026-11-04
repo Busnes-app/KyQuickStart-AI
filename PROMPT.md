@@ -34,6 +34,17 @@ and into a transcript. So:
 - When you need a secret only the user has (a DNS API token, a mail password), do **not** ask
   for it in chat. Tell them to run, in their own terminal:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
+  `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
+  `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
+  `npm` app has been applied (it creates the namespace; for an existing NPM, `kyq-edge` must
+  already exist with the label `ky.managed-by=kyquickstart`, `docs/edge.md`). Give them this as a `step` line in
+  `handover.tsv` and in chat, for their own terminal; the name, namespace and key are
+  KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
+  `credentials: {secret: cloudflare-dns, key: api_token}`. Both commands use the current
+  kubectl context: tell the user to `export KUBECONFIG=<their admin kubeconfig for that cluster>` first.
+  `bash -c 'read -rsp "Cloudflare token: " T && echo && printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
+  then `kubectl -n kyq-edge label secret cloudflare-dns ky.managed-by=kyquickstart --overwrite`.
+  Once they say it is done, rerun `apply`.
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
   and add a step to rotate it in the handover.
 
@@ -170,7 +181,8 @@ KyIdentity is external too: say so in the form. Internal names go under the inte
 and stay out of public DNS; external names go under the domain and outside the internal one.
 With `lan_dns`, KyDNS's private zone must contain both domains.
 
-A DNS token or SMTP password arrives through `put-secret`, never in chat; on an existing proxy
+A DNS token or SMTP password arrives through `put-secret` (a DNS token for NPM on Kubernetes
+through the user's `kubectl` step in section 0), never in chat; on an existing proxy
 you touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.
@@ -396,9 +408,9 @@ Kubernetes app, and never call one backed up through kyquickstart.
    logins to `handover.tsv` and its findings to `feedback.md`.
 
 **Accounts.** In KyIdentity create two people:
-- **Administrator** (the login the user chose, e.g. `alex-admin`): gets each product's admin
+- **Administrator** (the admin username the user chose): gets each product's admin
   role and nothing else. No everyday app access where the product enforces it.
-- **Everyday** (e.g. `alex`): gets each product's ordinary user role, no admin grant anywhere.
+- **Everyday** (the everyday username the user chose): gets each product's ordinary user role, no admin grant anywhere.
 Generate their initial passwords on the identity server (or use activation links if KyIdentity
 issues them), record the locations in `handover.tsv`, and add "enrol MFA/passkey for both" as
 a handover step. **Verify both email addresses** (KyIdentity sends a link once mail delivery
