@@ -34,7 +34,7 @@ admin kubeconfig. It asks for the token at a hidden prompt and stores it as the 
   a redaction filter as a backstop, and the prompt tells it to report any secret it sees.
 - The handover sheet is assembled by [`bin/handover`](../bin/handover) after the agent exits,
   reading each secret straight from its server into a file only you can read (mode 0600).
-  Save the logins in a password manager, then `shred -u` the file.
+  Save the logins in a password manager, then `shred -u` the file (`rm` on macOS).
 - The run folder is `~/.local/state/kyquickstart-ai/runs/<time>/` (mode 0700).
 
 ## What you get

@@ -50,8 +50,8 @@ kubeconfigs), and a server that is already compromised.
    code, with `bin/revoke-host.sh`.
 2. **The agent → servers, as `kyops`.** Through `ssh kyq-<name>` with the KyQuickStart AI key
    only (`IdentitiesOnly`), its own `known_hosts` and `StrictHostKeyChecking yes` (lines 66-76).
-   `kyops`' key line carries `restrict` (no forwarding, no terminal) and the account is locked to
-   key-only use (`bin/prepare-host.sh`).
+   `kyops`' key line carries `restrict` (no forwarding, no terminal) and the account has no usable
+   password, so it is key-only (`bin/prepare-host.sh`; `bin/revoke-host.sh` locks it).
    Product-owned calls pass through `bin/ssh-policy`, including diagnostics, admin bootstrap,
    revoke, `bin/on` and handover. It requires RSA-2048 endpoint keys, removes obsolete
    negotiation mechanisms from maintained defaults and bypasses existing control masters.

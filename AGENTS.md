@@ -74,8 +74,8 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   kubeconfig is `<state>/clusters/kube-<name>` (0600; the agent never opens it), written only
   once the token works. Docs must say pod create plus Secret get everywhere can escalate.
   `revoke kube-<name> <admin-kubeconfig>` deletes binding, role, token and ServiceAccount, in
-  that order, empties that file and leaves `<state>/revoked/kube-<name>`; `add-cluster`
-  removes it. Both refuse an admin kubeconfig whose server is not the registered one.
+  that order, empties that file and leaves `<state>/revoked/kube-<name>` holding the cluster's
+  server, so `add-cluster` still refuses another one under that name; `add-cluster` removes it. Both refuse an admin kubeconfig whose server is not the registered one.
   Add-host names may not start with `kube-`.
 - One launcher per run (lock folder `<run>/.launcher`); a cancelled setup form removes its new run.
 - Host keys are pinned per alias in `~/.ssh/kyquickstart-ai/known_hosts`; a changed key is

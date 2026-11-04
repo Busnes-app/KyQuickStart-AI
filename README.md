@@ -82,7 +82,8 @@ Continue an interrupted run with `./kyqs-ai resume`; the run keeps its own copy 
 Run it on the computer and clone that did the install. It updates this clone, downloads the
 newest `kyquickstart` release into the latest run (or the run folder you name) and starts that
 run's agent. The agent shows which apps change, asks before any upgrade without a backup, then
-upgrades, verifies and updates the handover.
+upgrades, verifies and updates the handover. If you revoked the agent's access after the
+install, give it back first (`kyqs-ai add-host` / `add-cluster`); `upgrade` lists what is revoked.
 
 ## Security and releases
 

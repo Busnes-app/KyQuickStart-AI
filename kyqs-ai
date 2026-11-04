@@ -77,6 +77,7 @@ ssh_setup() {
 # Managed by kyqs-ai. Each server is "ssh kyq-<name>" and logs in as the non-admin kyops user.
 Host kyq-*
   User kyops
+  IdentityAgent SSH_AUTH_SOCK
   IdentityFile $KEY
   IdentitiesOnly yes
   UserKnownHostsFile $SSHD/known_hosts
@@ -99,6 +100,12 @@ EOF
 }
 
 key_loaded() {
+	# Configs written before IdentityAgent was in the template: a user's own "Host * / IdentityAgent"
+	# (1Password, Secretive) would hide the agent that holds this key.
+	if [ -f "$CONF" ] && ! grep -qx '  IdentityAgent SSH_AUTH_SOCK' "$CONF"; then
+		awk '{ print } $0 == "Host kyq-*" { print "  IdentityAgent SSH_AUTH_SOCK" }' "$CONF" >"$CONF.kyqs-ai.tmp"
+		cat "$CONF.kyqs-ai.tmp" >"$CONF" && rm -f "$CONF.kyqs-ai.tmp"
+	fi
 	ssh-keygen -y -P '' -f "$KEY" >/dev/null 2>&1 && return # no passphrase
 	local fp
 	fp=$(ssh-keygen -lf "$KEY.pub" | awk '{print $2}')
@@ -155,9 +162,9 @@ target_problem() { # <target>: why the agent cannot use it, or nothing
 			echo "$CLUSTERS/$1 is readable by other users (chmod 600 it)"
 		fi
 	elif [ -f "$REVOKED/$1" ]; then
-		echo "access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host ${1#kyq-} $(ssh_connect -G "$1" | awk '$1 == "hostname" {print $2}')"
+		echo "access revoked with kyqs-ai revoke; restore it with $(add_host_cmd "$1")"
 	elif ! ssh-keygen -F "$1" -f "$SSHD/known_hosts" >/dev/null 2>&1; then
-		echo "host key not pinned; finish setup with kyqs-ai add-host ${1#kyq-} <address>"
+		echo "host key not pinned; finish setup with $(add_host_cmd "$1")"
 	elif ! ssh_connect -o ConnectTimeout=8 "$1" true </dev/null 2>/dev/null; then
 		echo "kyops cannot log in (server down, key not loaded in ssh-agent, or access revoked at the server?)"
 	elif ! ssh_connect "$1" 'docker info >/dev/null 2>&1' </dev/null; then
@@ -165,6 +172,10 @@ target_problem() { # <target>: why the agent cannot use it, or nothing
 	elif ! ssh_connect "$1" 'test -w /srv/ky' </dev/null; then
 		echo "/srv/ky is missing or not writable by kyops; re-run kyqs-ai add-host for it"
 	fi
+}
+
+add_host_cmd() { # <kyq-alias>: the add-host command for its address and port
+	ssh_connect -G "$1" | awk -v n="${1#kyq-}" '$1 == "hostname" { h = $2 } $1 == "port" { p = $2 } END { print "kyqs-ai add-host " n " " h " " p }'
 }
 
 is_this_computer() { # <address>
@@ -318,9 +329,12 @@ subjects: [{kind: ServiceAccount, name: $1, namespace: $KUBE_NS}]
 EOF
 }
 
-registered_server() { # <kube-name>: the server add_cluster wrote; empty once revoked or for an older registration
-	grep -qx "current-context: $1" "$CLUSTERS/$1" 2>/dev/null && grep -qx -- "- name: kyqs-ai-${1#kube-}" "$CLUSTERS/$1" || return 0
-	sed -n 's/^    server: //p' "$CLUSTERS/$1"
+registered_server() { # <kube-name>: the server add_cluster wrote (or revoke kept); empty for an older registration
+	if grep -qx "current-context: $1" "$CLUSTERS/$1" 2>/dev/null && grep -qx -- "- name: kyqs-ai-${1#kube-}" "$CLUSTERS/$1"; then
+		sed -n 's/^    server: //p' "$CLUSTERS/$1"
+	elif [ -f "$CLUSTERS/$1" ] && [ -s "$REVOKED/$1" ]; then
+		head -1 "$REVOKED/$1"
+	fi
 }
 
 verified_cluster_config() {
@@ -350,7 +364,7 @@ add_cluster() {
 	# Runs keep using this target's kubeconfig path: it must not quietly move to another cluster.
 	was=$(registered_server "kube-$1")
 	[ -z "$was" ] || [ "$was" = "$server" ] ||
-		die "kube-$1 is registered for $was, but $admin points at $server. Revoke it first (kyqs-ai revoke kube-$1 <its admin-kubeconfig>) or choose another name."
+		die "kube-$1 is registered for $was, but $admin points at $server. To move it, first revoke (kyqs-ai revoke kube-$1 <its admin-kubeconfig>) and remove it (kyqs-ai remove-cluster $1), or choose another name."
 	say "Creating ServiceAccount $KUBE_NS/$sa with the permissions kyquickstart checks (docs/TARGETS.md)."
 	kube_grant "$sa" | k apply -f - >/dev/null || die "creating it failed (above). Fix it and re-run; it is safe to repeat."
 	for _ in $(seq 30); do
@@ -414,7 +428,7 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 		die "revoking failed (above). Fix it and re-run; it is safe to repeat."
 	fi
 	mkdir -p "$REVOKED"
-	: >"$REVOKED/$1"
+	printf '%s\n' "$server" >"$REVOKED/$1" # so add-cluster still refuses another cluster under this name
 	[ ! -f "$CLUSTERS/$1" ] || : >"$CLUSTERS/$1" # keep the target listed, without the dead token
 	say "revoked on $server: ServiceAccount $KUBE_NS/$sa and its token are gone. Apps are untouched."
 	say "To give the agent access again: kyqs-ai add-cluster ${1#kube-} <admin-kubeconfig>"
@@ -471,7 +485,7 @@ put_secret() {
 	v=${v#"${v%%[![:space:]]*}"}
 	v=${v%"${v##*[![:space:]]}"}
 	[ -n "$v" ] || die "empty secret; nothing stored"
-	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || { [ -f '$2' ] && chmod 600 '$2'; } || { echo '$2 is not a file' >&2; exit 1; }; } && cat > '$2'"
+	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || { [ -f '$2' ] || { echo '$2 is not a file' >&2; exit 1; }; chmod 600 '$2'; }; } && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
 }
 
@@ -497,6 +511,10 @@ claim_run() {
 	echo $$ >"$lock/pid"
 	KYQS_LOCK=$lock
 	trap 'rm -rf "$KYQS_LOCK"' EXIT
+	# A signal to this launcher alone must not free the run while its agent works on: bash runs
+	# these traps only once the agent (the foreground child) has exited.
+	trap 'exit 143' TERM
+	trap 'exit 129' HUP
 }
 
 latest_run() {
@@ -590,7 +608,7 @@ finish() {
 		if [ -f "$run/handover.txt" ]; then
 			if confirm "Show the handover sheet (passwords) on screen now?"; then ${PAGER:-less} "$run/handover.txt" || say "Could not show it: open $run/handover.txt yourself."; fi
 			if command -v lp >/dev/null && confirm "Send it to your default printer?"; then lp "$run/handover.txt" || say "Printing failed."; fi
-			say "Store it in your password manager, then: shred -u '$run/handover.txt'"
+			say "Store it in your password manager, then: $(wipe) '$run/handover.txt'"
 		fi
 	else
 		say "No handover yet. Continue later with: kyqs-ai resume"
@@ -699,7 +717,10 @@ kyq_update() {
 		return 0
 	fi
 	have=
-	[ -z "$KYQ_BIN" ] || have=$("$KYQ_BIN" version 2>/dev/null | head -1)
+	[ -z "$KYQ_BIN" ] || have=$("$KYQ_BIN" version 2>/dev/null | head -1) || {
+		say "$KYQ_BIN does not run here (its version check failed)."
+		have=''
+	}
 	case $have in
 	dev)
 		say "kyquickstart here is a development build; the latest release is v$tag."
@@ -752,6 +773,7 @@ kyq_update() {
 start() {
 	need git awk sed
 	[ ! -t 0 ] || kyq_update
+	for t in $(host_aliases); do [ -f "$REVOKED/$t" ] || { key_loaded; break; }; done # before probing; revoked servers need no key
 	say "Install targets:"
 	hosts
 	if [ ! -f "$LOCAL" ] && confirm "Install on this computer?"; then
@@ -814,6 +836,7 @@ resume() {
 	local run agent hands
 	run=$(latest_run)
 	claim_run "$run"
+	access_left "$run" || confirm "The agent cannot reach these. Start it anyway?" || die "give the agent access again (above), then run kyqs-ai resume"
 	agent=$(sed -n 's/^agent: //p' "$run/launch.txt")
 	hands=$(sed -n 's/^hands-off: //p' "$run/launch.txt")
 	grep -q '^kyq-' "$run/hosts.txt" && key_loaded
@@ -823,9 +846,23 @@ resume() {
 	finish "$run"
 }
 
-handover_left() { # <run>: the last sheet still sits next to the agent
-	[ ! -f "$1/handover.txt" ] || say "$1/handover.txt (passwords) is still there. Store it in your password manager and shred it: shred -u '$1/handover.txt'"
+# access_left <run>: names each of the run's targets the agent can no longer reach after a revoke,
+# with how to restore it; false if there is one.
+access_left() {
+	local t s=0
+	while read -r t; do
+		case $t in
+		local) [ -f "$LOCAL" ] || { say "  ✖ local: no longer a target (kyqs-ai revoke local); restore it with kyqs-ai add-local" && s=1; } ;;
+		*) [ ! -f "$REVOKED/$t" ] || { say "  ✖ $t: $(target_problem "$t")" && s=1; } ;;
+		esac
+	done <"$1/hosts.txt"
+	return $s
 }
+
+handover_left() { # <run>: the last sheet still sits next to the agent
+	[ ! -f "$1/handover.txt" ] || say "$1/handover.txt (passwords) is still there. Store it in your password manager and delete it: $(wipe) '$1/handover.txt'"
+}
+wipe() { if command -v shred >/dev/null; then echo 'shred -u'; else echo rm; fi; } # macOS has no shred
 run_files() { cp "$ROOT/PROMPT.md" "$1/" && cp "$ROOT/bin/on" "$ROOT/bin/progress" "$ROOT/bin/redact" "$ROOT/bin/handover" "$ROOT/bin/ssh-policy" "$1/bin/"; }
 ai_version() { git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown; }
 run_kyq_version() { if [ -x "$1/bin/kyquickstart" ]; then "$1/bin/kyquickstart" version | head -1; else echo none; fi; }
@@ -837,11 +874,12 @@ upgrade() {
 	[ -n "$run" ] || run=$(latest_run)
 	run=$(CDPATH='' cd -- "$run" && pwd) || die "no run folder $run"
 	[ -f "$run/kyq/stack.yaml" ] || die "$run has no installed plan (kyq/stack.yaml); nothing to upgrade"
+	access_left "$run" || confirm "The agent cannot reach these. Upgrade anyway?" || die "give the agent access again (above), then run kyqs-ai upgrade"
 	[ ! -t 0 ] || kyq_update
 	[ -n "$KYQ_BIN" ] || die "upgrading needs kyquickstart: install a release, or set KYQS_KYQUICKSTART"
 	claim_run "$run"
 	have=$(run_kyq_version "$run")
-	new=$("$KYQ_BIN" version | head -1)
+	new=$("$KYQ_BIN" version | head -1) || die "$KYQ_BIN does not run here (its version check failed)"
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
 	umask 077
 	run_files "$run"
@@ -882,7 +920,7 @@ revoke() {
 	mkdir -p "$REVOKED"
 	: >"$REVOKED/$alias"
 	say "The pinned host entry stays. If the server is gone for good, delete its block in $CONF and its key: ssh-keygen -R $alias -f $SSHD/known_hosts"
-	say "To give the agent access again: kyqs-ai add-host $1 <address>"
+	say "To give the agent access again: $(add_host_cmd "$alias")"
 }
 
 # tmux_env: the settings a new tmux session would lose to an already running tmux server's
@@ -910,13 +948,13 @@ case $cmd in start | resume | upgrade)
 	if [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
 		tmux_env
 		# A running tmux server gives new sessions its own environment, not this shell's (API keys,
-		# proxies): pass it in a private file, not on argv, and delete it as the session starts.
-		# The terminal and tmux settings stay tmux's own.
+		# proxies): drop it, pass this shell's in a private file, not on argv, and delete it as the
+		# session starts. The terminal and tmux settings stay tmux's own.
 		envf=$(mktemp)
 		(unset TERM TERM_PROGRAM TERM_PROGRAM_VERSION TMUX TMUX_PANE SHLVL && export -p) >"$envf"
 		s=0
 		# shellcheck disable=SC2016 # $0, $1, $@ and $? are the inner bash's, not this script's
-		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '. "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?
+		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c 'for v in $(compgen -e); do case $v in TERM | TERM_PROGRAM | TERM_PROGRAM_VERSION | TMUX | TMUX_PANE) ;; *) unset "$v" ;; esac; done 2>/dev/null; . "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?
 		rm -f "$envf"
 		exit "$s"
 	fi
@@ -931,7 +969,10 @@ remove-cluster) remove_cluster "$@" ;;
 hosts) hosts ;;
 ssh-key) ssh_setup && base64 <"$KEY.pub" | tr -d '\n' && echo ;;
 put-secret) put_secret "$@" ;;
-dashboard) "$ROOT/bin/dashboard" "${1:-$(latest_run)}" ;;
+dashboard)
+	r=${1:-$(latest_run)}
+	"$ROOT/bin/dashboard" "$r"
+	;;
 resume) resume ;;
 upgrade) upgrade "$@" ;;
 handover)

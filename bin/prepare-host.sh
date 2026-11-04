@@ -30,7 +30,9 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is miss
 getent group docker >/dev/null || die "no docker group on this host"
 
 id "$U" >/dev/null 2>&1 || useradd --create-home --shell /bin/sh --comment "KyQuickStart AI agent" "$U"
-usermod --lock --expiredate '' "$U" # key-only; clears an expiry left by revoke-host.sh
+# key-only: no usable password, but not locked (sshd without PAM refuses locked accounts even
+# with a key); clears the lock and expiry left by revoke-host.sh
+usermod -p '*' --expiredate '' "$U"
 usermod -aG docker "$U"
 
 home=$(getent passwd "$U" | cut -d: -f6)

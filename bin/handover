@@ -37,7 +37,7 @@ fetch() { # <host> <path>
 {
 	echo "KyQuickStart AI — handover                     $(date '+%Y-%m-%d %H:%M')"
 	echo "Contains live administrator credentials. Save them in your password manager,"
-	echo "print if you must, then destroy this file:  shred -u '$out'"
+	echo "print if you must, then destroy this file:  $(command -v shred >/dev/null && echo 'shred -u' || echo rm) '$out'"
 	section=
 	steps=()
 	n=0
