@@ -76,7 +76,8 @@ allowed are `ssh`, `scp`, `curl`, `dig`, `getent`, `git clone`/`-C`/`ls-remote`,
 helpers (`./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover`, `./bin/kyquickstart`)
 with any arguments, and the Read, Edit and Write tools with no path limit. The denies are `Read`
 on every registered kubeconfig, on `~/.ssh/**` and `~/.kube/**`, and on the `handover.txt` of this and every other run. For Codex, `-a never` inside its `workspace-write` sandbox with
-network on (lines 373-378). Gemini CLI and opencode get no hands-off mode.
+network on (lines 373-378). Gemini CLI and opencode get no hands-off mode. Claude Code's
+Read denies are written in supervised mode too, with no pre-approved commands.
 
 The allow-list removes prompts for the commands an install needs. **It is not a sandbox**:
 

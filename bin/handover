@@ -81,6 +81,11 @@ fetch() { # <host> <path>
 	fi
 } >"$tmp"
 
+if [ "$failed" != 0 ] && [ -f "$out" ]; then
+	# The last good sheet may hold passwords this one could not read: keep it.
+	echo "handover: fix the lines above in handover.tsv, then run it again; $out is the previous one, unchanged" >&2
+	exit 1
+fi
 mv -f "$tmp" "$out"
 trap - EXIT
 echo "handover written: $out (mode 0600)"

@@ -34,7 +34,9 @@ and into a transcript. So:
 - When you need a secret only the user has (a DNS API token, a mail password), do **not** ask
   for it in chat. Tell them to run, in their own terminal:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
-  `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
+  `put-secret` takes only `local` and `kyq-*` targets. An SMTP relay is set by KyIdentity's
+  first setup only, so ask in chat for the relay's `security` (`tls` or `starttls`) and `from`
+  address (not secrets) rather than guessing. The Cloudflare DNS token for NPM on a
   `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
   `npm` app has been applied (it creates the namespace; for an existing NPM, `kyq-edge` must
   already exist with the label `ky.managed-by=kyquickstart`, `docs/edge.md`). Give them this as a `step` line in

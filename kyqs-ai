@@ -116,7 +116,7 @@ key_loaded() {
 	ssh-add -l 2>/dev/null | grep -qF "$fp" && return
 	[ -n "${SSH_AUTH_SOCK:-}" ] || die "the key has a passphrase but no ssh-agent is running; start one (eval \$(ssh-agent)) and re-run"
 	say "Loading the KyQuickStart AI key into ssh-agent for 12 hours."
-	ssh-add -t 12h "$KEY"
+	ssh-add -t 12h "$KEY" || die "could not load the key into the ssh-agent at \$SSH_AUTH_SOCK (agents such as 1Password's refuse added keys); start a standard one with: eval \$(ssh-agent), then re-run"
 }
 
 host_aliases() { [ -f "$CONF" ] && awk '$1 == "Host" && $2 != "kyq-*" {print $2}' "$CONF"; }
@@ -419,6 +419,8 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 	verified_cluster_config "$2"
 	# A wrong context would delete nothing and still report success, leaving the real token live.
 	was=$(registered_server "$1")
+	# A revoke after remove-cluster keeps only the marker: it still names the cluster.
+	[ -n "$was" ] || [ ! -s "$REVOKED/$1" ] || was=$(head -1 "$REVOKED/$1")
 	server=$("$ROOT/bin/kubectl-policy" --kubeconfig "$2" config view --minify -o 'jsonpath={.clusters[0].cluster.server}')
 	[ -z "$was" ] || [ "$was" = "$server" ] ||
 		die "$1 is registered for $was, but $2 points at $server; switch $2 to that cluster and re-run. Nothing was deleted."
@@ -549,31 +551,31 @@ run_agent() { # <run>
 ended() { say "The agent exited with status $1."; } # finish still runs: handover and reminders
 
 launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
-	local agent=$1 hands=$2 run=$3 kick=$4 t deny=''
+	local agent=$1 hands=$2 run=$3 kick=$4 t deny='' allow
 	run_agent "$run"
 	case $agent in
 	claude)
-		if [ "$hands" = yes ]; then
-			# Every run's handover sheet, every registered kubeconfig and the user's own SSH keys and
-			# kubeconfigs hold what the agent must not see.
-			[[ $STATE != *[\"\\]* ]] || die "$STATE: a path with \" or \\ cannot go into the hands-off settings"
-			deny="\"Read(./handover.txt)\", \"Read(/$RUNS/*/handover.txt)\", \"Read(~/.ssh/**)\", \"Read(~/.kube/**)\", \"Read(/$CLUSTERS/**)\""
-			mkdir -p "$run/.claude"
-			cat >"$run/.claude/settings.json" <<EOF
-{
-  "permissions": {
-    "allow": [
+		# Every run's handover sheet, every registered kubeconfig and the user's own SSH keys and
+		# kubeconfigs hold what the agent must not see, in either mode.
+		[[ $STATE != *[\"\\]* ]] || die "$STATE: a path with \" or \\ cannot go into the agent's settings"
+		deny="\"Read(./handover.txt)\", \"Read(/$RUNS/*/handover.txt)\", \"Read(~/.ssh/**)\", \"Read(~/.kube/**)\", \"Read(/$CLUSTERS/**)\""
+		allow=''
+		[ "$hands" != yes ] || allow='
       "Bash(ssh:*)", "Bash(scp:*)", "Bash(git clone:*)", "Bash(git -C:*)", "Bash(git ls-remote:*)",
       "Bash(curl:*)", "Bash(dig:*)", "Bash(getent:*)",
       "Bash(./bin/on:*)", "Bash(./bin/progress:*)", "Bash(./bin/redact:*)", "Bash(./bin/handover:*)",
       "Bash(./bin/kyquickstart:*)",
       "Read", "Edit", "Write"
-    ],
+    '
+		mkdir -p "$run/.claude"
+		cat >"$run/.claude/settings.json" <<EOF
+{
+  "permissions": {
+    "allow": [$allow],
     "deny": [$deny]
   }
 }
 EOF
-		fi
 		(cd "$run" && claude "$kick") || ended $?
 		;;
 	codex)
@@ -609,7 +611,7 @@ finish() {
 	say ""
 	say "── agent session ended ──"
 	if [ -f "$run/handover.tsv" ]; then
-		"$ROOT/bin/handover" "$run" || true
+		"$ROOT/bin/handover" "$run" || say "The sheet may lack what failed above (a failed rebuild keeps the last good one)."
 		if [ -f "$run/handover.txt" ]; then
 			if confirm "Show the handover sheet (passwords) on screen now?"; then ${PAGER:-less} "$run/handover.txt" || say "Could not show it: open $run/handover.txt yourself."; fi
 			if command -v lp >/dev/null && confirm "Send it to your default printer?"; then lp "$run/handover.txt" || say "Printing failed."; fi
@@ -883,11 +885,11 @@ upgrade() {
 	[ -n "$KYQ_BIN" ] || die "upgrading needs kyquickstart: install a release, or set KYQS_KYQUICKSTART"
 	claim_run "$run"
 	access_left "$run" || confirm "The agent cannot reach these. Upgrade anyway?" || die "give the agent access again (above), then run kyqs-ai upgrade"
-	have=$(run_kyq_version "$run") || {
+	if ! have=$(run_kyq_version "$run") || [ "$have" = none ]; then
 		# the version it recorded still guards against a downgrade
 		have=$(sed -n 's/^kyquickstart: //p' "$run/launch.txt")
-		say "The run's kyquickstart does not run here (its version check failed); replacing it (recorded: ${have:=none})."
-	}
+		[ "${have:=none}" = none ] || say "The run's kyquickstart is missing or does not run here; replacing it (recorded: $have)."
+	fi
 	new=$("$KYQ_BIN" version | head -1) || die "$KYQ_BIN does not run here (its version check failed)"
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
 	umask 077
@@ -964,8 +966,11 @@ case $cmd in start | resume | upgrade)
 		s=0
 		# shellcheck disable=SC2016 # $0, $1, $@ and $? are the inner bash's, not this script's
 		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c 'for v in $(compgen -e); do case $v in TERM | TERM_PROGRAM | TERM_PROGRAM_VERSION | TMUX | TMUX_PANE) ;; *) unset "$v" ;; esac; done 2>/dev/null; . "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?
+		# The inner shell deletes the file first thing: still there, tmux never started (an unknown
+		# TERM, for one), so run here without it.
+		if [ "$s" = 0 ] || [ ! -e "$envf" ]; then exit "$s"; fi
 		rm -f "$envf"
-		exit "$s"
+		say "tmux could not start a session (above); carrying on without it."
 	fi
 	;;
 esac

@@ -228,6 +228,8 @@ kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
 out=$(STUB_NO_SA=1 kyqs revoke kube-lab "$kc" 2>&1) && fail "revoke with no registration and no ServiceAccount reported success: $out"
 grep -q 'nothing was revoked' <<<"$out" || fail "wrong refusal: $out"
 kyqs revoke kube-lab "$kc" >/dev/null || fail "revoke after remove-cluster"
+out=$(STUB_SERVER=https://192.0.2.9:6443 kyqs revoke kube-lab "$kc" 2>&1) && fail "a second revoke after remove-cluster ran against another cluster: $out"
+grep -q 'Nothing was deleted' <<<"$out" || fail "revoke after remove-cluster on another cluster: $out"
 ok "remove-cluster forgets the target, warns about a live ServiceAccount and leaves the admin kubeconfig; revoke then needs the ServiceAccount"
 
 # Install on this computer only: no SSH at all. Own home and state; stub docker and sudo.

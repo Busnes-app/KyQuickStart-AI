@@ -58,7 +58,11 @@ grep -qE 'abc123|zz|eyJ|482913|731058|S3cretPw|hunter2' <<<"$r" && fail "redact 
 grep -qF 'https://example.com:8443/a@b' <<<"$r" || fail "redact mangled a URL without credentials: $r"
 grep -q 'pid 123456' <<<"$r" || fail "redact masked a number on an unrelated line"
 grep -qx keyboard <<<"$r" || fail "redact mangled a plain line"
-ok "redact masks password, secret, bearer, URL-credential and pairing-code values"
+r=$(printf '%s\n' '{"password":"correct horse staple","user":"bob"}' '{"token":"abc,def|ghi}"}' "secret: 'two words'" "password: 'correct'' horse'" \
+	'{"api_key":"a\"b c"}' | "$ROOT/bin/redact")
+grep -qE 'horse|staple|def|ghi|words|b c|correct' <<<"$r" && fail "redact leaked part of a quoted value: $r"
+grep -qF '"user":"bob"' <<<"$r" || fail "redact swallowed the next JSON field: $r"
+ok "redact masks password, secret, bearer, URL-credential and pairing-code values, quoted ones whole"
 
 printf 'pw-1\n' >"$work/pw"
 printf 'A\turl\tSite\thttps://a\nA\tsecret\tPassword\tlocal:%s/pw\nA\tsecret\tEscape\tlocal:%s/../pw\nA\tstep\tEnrol MFA\tbrowser\n' "$work" "$work" >"$work/handover.tsv"
@@ -69,7 +73,14 @@ err=$("$ROOT/bin/handover" "$work" 2>&1 >/dev/null || true)
 grep -q 'handover.tsv line 3 (Escape)' <<<"$err" || fail "handover did not name the bad line: $err"
 grep -q '\[ \] \[A\] Enrol MFA' "$work/handover.txt" || fail "handover missing step"
 [ "$(stat -c %a "$work/handover.txt" 2>/dev/null || stat -f %Lp "$work/handover.txt")" = 600 ] || fail "handover not 0600"
-ok "handover resolves secrets, refuses traversal, lists steps, writes 0600"
+# A rebuild that cannot read a secret keeps the last good sheet instead of losing its passwords.
+printf 'A\tsecret\tPassword\tlocal:%s/pw\n' "$work" >"$work/handover.tsv"
+"$ROOT/bin/handover" "$work" >/dev/null 2>&1 || fail "handover of a readable secret failed"
+printf 'A\tsecret\tPassword\tlocal:%s/gone\n' "$work" >"$work/handover.tsv"
+"$ROOT/bin/handover" "$work" >/dev/null 2>&1 && fail "handover with an unreadable secret succeeded"
+grep -q 'Password *pw-1' "$work/handover.txt" || fail "a failed rebuild replaced the last good handover"
+[ -z "$(find "$work" -maxdepth 1 -name '.handover.*')" ] || fail "a failed rebuild left its temporary sheet"
+ok "handover resolves secrets, refuses traversal, lists steps, writes 0600, keeps the last good sheet"
 
 [ "$("$ROOT/bin/on" local 'pwd')" = "$HOME" ] || fail "on local: not started in home"
 [ "$(printf 'piped' | "$ROOT/bin/on" local 'cat')" = piped ] || fail "on local: stdin lost"
@@ -392,6 +403,16 @@ printf '#!/bin/sh\necho 0.4.2.10\n' >"$ug/kyquickstart"
 out=$(kyqs_up "$old") || fail "upgrade stopped on a run binary that does not run: $out"
 grep -q 'does not run here' <<<"$out" || fail "upgrade did not say the run binary is broken: $out"
 cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade did not replace a broken run binary'
+# a missing run binary is no way round the guard either: launch.txt still records the version
+rm "$old/bin/kyquickstart"
+printf '#!/bin/sh\necho 0.4.2.9\n' >"$ug/kyquickstart"
+out=$(kyqs_up "$old") && fail "upgrade replaced a missing run binary with an older release than it recorded: $out"
+grep -q 'older than the run' <<<"$out" || fail "missing run binary, older release: $out"
+printf '#!/bin/sh\necho 0.4.2.10\n' >"$ug/kyquickstart"
+kyqs_up "$old" >/dev/null || fail "upgrade with a missing run binary: $(kyqs_up "$old")"
+# a supervised Claude run gets the Read denies too, and no pre-approvals
+grep -qF '"Read(./handover.txt)"' "$old/.claude/settings.json" || fail "supervised run without Read denies: $(cat "$old/.claude/settings.json" 2>&1)"
+grep -qF 'Bash(' "$old/.claude/settings.json" && fail "supervised run got pre-approved commands"
 # a still-running old binary blocks overwriting it (Linux: "Text file busy"); rename a new file in
 printf '#!/bin/sh\necho 0.4.2.11\n' >"$ug/kyquickstart"
 ino=$(ls -i "$old/bin/kyquickstart")
