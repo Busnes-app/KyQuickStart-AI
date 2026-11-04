@@ -217,9 +217,10 @@ ok "add-cluster and revoke refuse an admin kubeconfig for a different cluster"
 kyqs revoke kube-lab "$kc" >/dev/null || fail "revoke kube-lab"
 grep -q token "$agentkc" && fail "revoke left the token on disk"
 kyqs hosts | grep -qF 'kube-lab: access revoked' || fail "hosts does not say kube-lab was revoked: $(kyqs hosts)"
+out=$(STUB_SERVER=https://192.0.2.9:6443 kyqs add-cluster lab "$kc" 2>&1) && fail "add-cluster after revoke moved kube-lab to another cluster: $out"
 kyqs add-cluster lab "$kc" >/dev/null || fail "add-cluster after revoke"
 kyqs hosts | grep -q '✔ kube-lab' || fail "kube-lab not restored: $(kyqs hosts)"
-ok "revoke kube-lab marks it revoked and drops the token; add-cluster restores it"
+ok "revoke kube-lab marks it revoked and drops the token; add-cluster restores it, on the same cluster only"
 out=$(kyqs remove-cluster lab)
 grep -q 'revoke kube-lab' <<<"$out" || fail "remove-cluster did not warn that the ServiceAccount still works: $out"
 kyqs hosts | grep -q kube-lab && fail "remove-cluster left the target"
@@ -275,13 +276,18 @@ kyqs revoke kyq-core admin >/dev/null 2>&1 || fail "revoke failed"
 ssh -o ConnectTimeout=5 kyq-core true 2>/dev/null && fail "kyops can still log in after revoke"
 docker exec "$name" id -nG kyops | grep -qw docker && fail "kyops still in docker group"
 docker exec "$name" test -d /srv/ky/test || fail "revoke touched /srv/ky"
+[ "$(docker exec "$name" getent shadow kyops | cut -d: -f2 | cut -c1)" = '!' ] || fail "revoke did not lock kyops"
 ok "revoke removes access and leaves data"
 out=$(kyqs hosts)
-grep -qF "kyq-core: access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host core $ip" <<<"$out" ||
+grep -qF "kyq-core: access revoked with kyqs-ai revoke; restore it with kyqs-ai add-host core $ip $port" <<<"$out" ||
 	fail "hosts does not say kyq-core was revoked: $out"
 ok "hosts names a revoked server and how to restore it"
 
-kyqs add-host core "$ip" "$port" admin >/dev/null 2>&1 || fail "add-host after revoke"
+# The command hosts gives, as printed (the server is not on port 22).
+restore=$(sed -n 's/.*restore it with kyqs-ai \(add-host .*\)$/\1/p' <<<"$out")
+# shellcheck disable=SC2086 # the printed command's words
+kyqs $restore admin >/dev/null 2>&1 || fail "the restore command hosts printed failed: $restore"
+[ "$(docker exec "$name" getent shadow kyops | cut -d: -f2)" = '*' ] || fail "kyops is still locked after add-host (sshd without PAM refuses it)"
 [ "$(ssh kyq-core id -un)" = kyops ] || fail "access not restored after revoke"
 out=$(kyqs hosts)
 grep -q '✔ kyq-core' <<<"$out" || fail "hosts still reports kyq-core as revoked: $out"

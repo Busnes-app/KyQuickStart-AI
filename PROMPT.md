@@ -42,7 +42,7 @@ and into a transcript. So:
   KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
   `credentials: {secret: cloudflare-dns, key: api_token}`. Both commands use the current
   kubectl context: tell the user to `export KUBECONFIG=<their admin kubeconfig for that cluster>` first.
-  `bash -c 'read -rsp "Cloudflare token: " T && echo && printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
+  `bash -c 'read -rsp "Cloudflare token: " T && echo && while IFS= read -rst1 -n1 c; do case $c in [![:space:]]) T=;; esac; done; [ -n "$T" ] || { echo "Nothing stored: paste the token as one line." >&2; exit 1; }; printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
   then `kubectl -n kyq-edge label secret cloudflare-dns ky.managed-by=kyquickstart --overwrite`.
   Once they say it is done, rerun `apply`.
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
@@ -562,10 +562,14 @@ Mark each step that is not in any README today with **(not in README)**.
 4. In chat: the final board, the URL list, the human steps left, the paths of the three
    reports, and these closing instructions for the user:
    - Exit this agent session; the launcher then offers to show and print the handover.
-   - Save the logins in a password manager, then `shred -u` the file.
+   - Save the logins in a password manager, then delete the file (`shred -u`; `rm` on macOS,
+     which has no `shred`).
    - When nothing else needs doing, remove the agent's server access:
-     `kyqs-ai revoke <name>` for each server (keeps all apps and data). For `local`
+     `kyqs-ai revoke <name>` for each server (keeps all apps and data), and
+     `kyqs-ai revoke kube-<name> <admin-kubeconfig>` for each cluster. For `local`
      there is no agent login to remove; `kyqs-ai revoke local` just stops offering it.
+     Before a later `kyqs-ai upgrade` or `resume`, give the access back with `add-host` /
+     `add-cluster` (the launcher lists what is revoked).
    - `feedback.md` holds this site's details; redact it before sharing it anywhere.
 
 ## 12. Upgrade

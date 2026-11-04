@@ -155,6 +155,36 @@ got=$(env -u KYQS_DATA bash -c 'source "$1"; tmux_env; KYQS_DATA=/stale env "${T
 [ "$got" = unset ] || fail "tmux_env let a stale KYQS_DATA through: $got"
 # shellcheck disable=SC2016 # a literal line of kyqs-ai
 grep -qF 'export -p) >"$envf"' "$ROOT/kyqs-ai" || fail "the tmux session is not handed this shell's environment"
+# shellcheck disable=SC2016 # a literal in the script
+grep -qF 'for v in $(compgen -e)' "$ROOT/kyqs-ai" || fail "the tmux session keeps the tmux server's own environment"
+# dashboard with no runs stops instead of watching /progress.log for ever
+XDG_STATE_HOME=$work/none "$ROOT/kyqs-ai" dashboard >"$work/dash.out" 2>&1 &
+p=$!
+for _ in $(seq 30); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$p" 2>/dev/null; then
+	pkill -P "$p" || true
+	kill "$p"
+	fail "dashboard with no runs kept running"
+fi
+wait "$p" || true
+out=$(cat "$work/dash.out")
+grep -q 'no runs yet' <<<"$out" || fail "dashboard with no runs: $out"
+# A kyquickstart that cannot run its version check is reported, not a silent exit.
+printf '#!/bin/sh\nexit 2\n' >"$work/broken-kyq"
+chmod +x "$work/broken-kyq"
+# shellcheck disable=SC2016 # expands in the inner bash
+out=$(bash -c 'source "$1"; KYQ_BIN=$2; latest_release() { echo "tag v9.9.9"; }; confirm() { return 1; }; kyq_update; echo returned' t "$ROOT/kyqs-ai" "$work/broken-kyq" 2>&1) || fail "kyq_update died on a broken binary: $out"
+grep -q 'does not run here' <<<"$out" || fail "kyq_update did not say the binary is broken: $out"
+grep -q returned <<<"$out" || fail "kyq_update did not return: $out"
+# An existing managed SSH config gets IdentityAgent once, so a user's own IdentityAgent cannot hide the key.
+mkdir -p "$work/ia/.ssh/kyquickstart-ai"
+ssh-keygen -q -t ed25519 -N '' -f "$work/ia/.ssh/kyquickstart-ai/id_ed25519"
+printf 'Host kyq-*\n  User kyops\n  IdentitiesOnly yes\nHost kyq-a\n  HostName 192.0.2.1\n' >"$work/ia/.ssh/kyquickstart-ai/config"
+# shellcheck disable=SC2016 # expands in the inner bash
+HOME=$work/ia bash -c 'source "$1"; key_loaded; key_loaded' t "$ROOT/kyqs-ai" || fail "key_loaded failed on the config update"
+[ "$(sed -n 2p "$work/ia/.ssh/kyquickstart-ai/config")" = '  IdentityAgent SSH_AUTH_SOCK' ] || fail "no IdentityAgent in the kyq-* block: $(cat "$work/ia/.ssh/kyquickstart-ai/config")"
+[ "$(grep -c IdentityAgent "$work/ia/.ssh/kyquickstart-ai/config")" = 1 ] || fail "IdentityAgent added twice"
+ok "dashboard without runs stops; a broken kyquickstart is reported; old SSH configs get IdentityAgent"
 ok "tmux sessions keep the selected profiles, paths and an empty KYQS_KYQUICKSTART, and drop stale ones"
 
 # A newer release kyq_update put in ~/.local/bin beside a system copy it could not replace wins.
@@ -330,9 +360,16 @@ echo stale >"$old/PROMPT.md"
 : >"$old/kyq/stack.yaml"
 printf 'local\n' >"$old/hosts.txt"
 printf 'agent: claude\nhands-off: no\nlauncher: x\nkyquickstart-ai: v0.5.0\nkyquickstart: 0.4.2.9\n' >"$old/launch.txt"
+: >"$st/local-host"
 kyqs_up() { env -u TMUX PATH="$ug/bin:$PATH" XDG_STATE_HOME="$ug/state" KYQS_KYQUICKSTART="$ug/kyquickstart" "$ROOT/kyqs-ai" upgrade "$@" </dev/null 2>&1; }
 out=$(kyqs_up) && fail "upgrade took the latest run, which has no installed plan: $out"
 grep -q 'no installed plan' <<<"$out" || fail "upgrade without a plan: $out"
+# After the install's closing revoke, upgrade names what to restore instead of starting the agent blind.
+rm "$st/local-host"
+out=$(kyqs_up "$old") && fail "upgrade started on a revoked target: $out"
+grep -qF 'local: no longer a target' <<<"$out" || fail "upgrade did not name the revoked target: $out"
+[ ! -e "$old/kickoff.txt" ] || fail "upgrade started the agent on a revoked target"
+: >"$st/local-host"
 kyqs_up "$old" >/dev/null || fail "upgrade: $(kyqs_up "$old")"
 cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade did not give the run the new kyquickstart'
 cmp -s "$ROOT/PROMPT.md" "$old/PROMPT.md" || fail 'upgrade left the stale prompt'
@@ -347,6 +384,14 @@ printf '#!/bin/sh\necho 0.4.2.8\n' >"$ug/kyquickstart"
 out=$(kyqs_up "$old") && fail "upgrade installed an older kyquickstart: $out"
 grep -q 'older than the run' <<<"$out" || fail "downgrade refusal: $out"
 [ "$("$old/bin/kyquickstart" version)" = 0.4.2.10 ] || fail 'a refused downgrade replaced the binary'
+# a run binary that no longer runs is replaced, not a silent exit, and never by an older release
+printf '#!/bin/sh\nexit 7\n' >"$old/bin/kyquickstart"
+out=$(kyqs_up "$old") && fail "upgrade replaced a broken run binary with an older release than it recorded: $out"
+grep -q 'older than the run' <<<"$out" || fail "broken run binary, older release: $out"
+printf '#!/bin/sh\necho 0.4.2.10\n' >"$ug/kyquickstart"
+out=$(kyqs_up "$old") || fail "upgrade stopped on a run binary that does not run: $out"
+grep -q 'does not run here' <<<"$out" || fail "upgrade did not say the run binary is broken: $out"
+cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade did not replace a broken run binary'
 # a still-running old binary blocks overwriting it (Linux: "Text file busy"); rename a new file in
 printf '#!/bin/sh\necho 0.4.2.11\n' >"$ug/kyquickstart"
 ino=$(ls -i "$old/bin/kyquickstart")
@@ -375,6 +420,17 @@ grep -q 'is running an agent on' <<<"$out" || fail "busy run refusal: $out"
 [ "$(cat "$old/.launcher/pid")" = "$busy" ] || fail "a refused upgrade took the live launcher's lock"
 kyqs_up "$old" >/dev/null || fail "upgrade did not take over a dead launcher's lock: $(kyqs_up "$old")"
 [ ! -e "$old/.launcher" ] || fail "upgrade left its lock behind"
-ok 'upgrade repeats without a false record, takes a relative run path, finishes after a failing agent and refuses a busy run'
+# A signal to the launcher alone keeps the run locked until its agent has exited.
+printf '#!/bin/sh\n: >agent-started\nsleep 3\n: >agent-done\n' >"$ug/bin/claude"
+kyqs_up "$old" >/dev/null &
+p=$!
+for _ in $(seq 100); do [ -e "$old/agent-started" ] && break; sleep 0.1; done
+kill -TERM "$(cat "$old/.launcher/pid")"
+sleep 0.5
+[ -d "$old/.launcher" ] || fail "a signalled launcher freed the run while its agent was still working"
+wait "$p" || true
+[ -e "$old/agent-done" ] || fail "the agent did not finish"
+[ ! -e "$old/.launcher" ] || fail "a signalled launcher left its lock behind"
+ok 'upgrade repeats without a false record, takes a relative run path, finishes after a failing agent, refuses a busy run and keeps it locked while its agent works'
 
 echo "unit: all passed"
