@@ -29,6 +29,15 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   ~/.config/kyq/smtp.password` stores it as a one-line 0600 file on this computer (never
   through a symlink) for `identity.mail.password_file`, on Docker and Kubernetes sites alike.
   Claude hands-off denies Read on `~/.config/kyq/`.
+- Hostile-review pass 4. Claude Code gets the Read denies (handover sheets, `~/.ssh`,
+  `~/.kube`, kubeconfigs) in supervised mode too. `put-secret workstation` replaces only an
+  earlier one-line 0600 secret, never another file, and refuses more than 1024 bytes. A
+  failed handover rebuild keeps the last good sheet. `bin/redact` masks a quoted value whole,
+  spaces and commas included. A second `revoke kube-<name>` after `remove-cluster` still
+  refuses another cluster. `upgrade` keeps its downgrade guard when the run's `kyquickstart`
+  is missing. When tmux cannot start a session (an unknown `TERM`), the launcher carries on
+  without it, and an ssh-agent that refuses added keys gets a clear message. The setup form
+  refuses a relay username with spaces, which KyQuickStart refuses too.
 - Hostile-review pass 2. `revoke kube-<name>` with no registration (after `remove-cluster`,
   or a mistyped name) refuses when the cluster has no such ServiceAccount, instead of reporting
   success, and says which cluster it revoked on. `put-secret` refuses a directory instead of

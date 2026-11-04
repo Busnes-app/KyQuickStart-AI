@@ -28,8 +28,10 @@ For an SMTP relay password, which `kyquickstart` reads on this computer, the tar
 ./kyqs-ai put-secret workstation ~/.config/kyq/smtp.password   # one line, stored 0600
 ```
 
-It refuses several lines and will not write through a symlink. In hands-off mode Claude Code
-is denied Read on `~/.config/kyq/`, so keep such files there.
+It refuses several lines, will not write through a symlink, and replaces an existing file only
+when it is already a one-line 0600 secret. Claude Code is denied Read on `~/.config/kyq/`, so
+keep such files there. Keep the file after the install: every later `kyquickstart apply` reads
+it again.
 
 Otherwise `put-secret` takes `local` and `kyq-<name>` targets only. For a Cloudflare DNS token used by
 NPM on a Kubernetes cluster, the agent gives you a `kubectl` command instead: run it with your

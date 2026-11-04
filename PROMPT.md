@@ -38,7 +38,11 @@ and into a transcript. So:
   read by `kyquickstart` on this computer, not by a server: give them
   `kyqs-ai put-secret workstation ~/.config/kyq/smtp.password` (a 0600 one-line file; you may
   not read it), and set KyIdentity's `identity.mail.password_file` in `stack.yaml` to that
-  file's absolute path (`$HOME` expanded), on Docker and Kubernetes sites alike. The Cloudflare DNS token for NPM on a
+  file's absolute path (`$HOME` expanded), on Docker and Kubernetes sites alike. `preflight`
+  and `apply` refuse a missing file, so have it stored before preflight; the relay is set by
+  KyIdentity's first setup only, so also ask in chat for the relay's `security` (`tls` or
+  `starttls`) and `from` address (not secrets) rather than guessing. Tell the user to keep the
+  file: every later `apply` reads it again. The Cloudflare DNS token for NPM on a
   `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
   `npm` app has been applied (it creates the namespace; for an existing NPM, `kyq-edge` must
   already exist with the label `ky.managed-by=kyquickstart`, `docs/edge.md`). Give them this as a `step` line in

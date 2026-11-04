@@ -127,7 +127,7 @@ is_mail() { [[ $1 =~ $re_mail ]]; }
 is_everyday_mail() { is_mail "$1" && [ "$1" != "$admin_mail" ]; }
 is_text() { [ -n "$1" ] && [ ${#1} -le 100 ] && [[ $1 != *[\"\\]* ]]; }
 is_port() { [[ $1 =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
-is_relay_user() { [ -z "$1" ] || is_text "$1"; }
+is_relay_user() { [ -z "$1" ] || { is_text "$1" && [[ $1 != *[[:space:]]* ]]; }; }
 
 # Answers.
 domain='' internal_domain='' exposure=lan proxy='' certs=cloudflare placement=agent
@@ -300,7 +300,7 @@ q_mail() {
 		mail=relay
 		text relay_host "Relay host" "$relay_host" is_host "Enter the relay's DNS name."
 		text relay_port "Relay port" "$relay_port" is_port "Enter a port number."
-		text relay_user "Relay username (blank for none)" "$relay_user" is_relay_user "Up to 100 characters, without quotes or backslashes."
+		text relay_user "Relay username (blank for none)" "$relay_user" is_relay_user "Up to 100 characters, without spaces, quotes or backslashes."
 	fi
 	if printf '%s\n' "$TARGETS" | grep -qx local; then
 		echo
