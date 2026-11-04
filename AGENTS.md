@@ -57,7 +57,9 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
   runs it. Claude hands-off denies Read on every run's `handover.txt`, `~/.ssh` and `~/.kube`.
   `handover.tsv` holds locations, never values.
   `put-secret` keeps the value off argv and out of output, trims surrounding whitespace and
-  refuses an empty one.
+  refuses an empty one. Its `workstation` target writes a one-line 0600 file under `~` (never
+  through a symlink) for a secret `kyquickstart` reads locally, such as the SMTP password;
+  Claude hands-off denies Read on `~/.config/kyq/**`.
 - The agent's server login `kyops` is key-only (`restrict`), passwordless, sudo-less, in the
   `docker` group, owner of `/srv/ky`. Docs must say docker group is root-equivalent.
   `revoke` removes access and never touches apps or `/srv/ky`; it leaves an empty

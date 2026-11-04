@@ -293,7 +293,7 @@ q_ceremony() {
 
 q_mail() {
 	screen "8/8" "Outgoing mail (email verification, notices)"
-	list 0 $'Mailpit: a test catcher, nothing leaves the lab\nMy SMTP relay (its password goes in later with put-secret)' "$([ "$mail" = mailpit ] && echo '1 0' || echo '0 1')" ""
+	list 0 $'Mailpit: a test catcher, nothing leaves the lab\nMy SMTP relay (its password goes into a file on this computer with put-secret workstation)' "$([ "$mail" = mailpit ] && echo '1 0' || echo '0 1')" ""
 	if [ "$PICK" = 0 ]; then
 		mail=mailpit
 	else

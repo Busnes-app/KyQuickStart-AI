@@ -198,7 +198,7 @@ for denied in "/$XDG_STATE_HOME/kyquickstart-ai/clusters/**" "/$XDG_STATE_HOME/k
 	grep -qF "\"Read($denied)\"" "$run/.claude/settings.json" || fail "$denied not denied to Read: $(cat "$run/.claude/settings.json")"
 done
 # shellcheck disable=SC2088 # literal Claude Code rule paths, not shell paths
-for denied in './handover.txt' '~/.ssh/**' '~/.kube/**'; do
+for denied in './handover.txt' '~/.ssh/**' '~/.kube/**' '~/.config/kyq/**'; do
 	grep -qF "\"Read($denied)\"" "$run/.claude/settings.json" || fail "$denied not denied to Read: $(cat "$run/.claude/settings.json")"
 done
 agentfp=$(ssh-keygen -lf "$HOME/.ssh/kyquickstart-ai/id_ed25519.pub" | awk '{print $2}')

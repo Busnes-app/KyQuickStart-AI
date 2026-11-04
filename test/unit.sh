@@ -142,6 +142,30 @@ printf 'x' | put "$data/app/dir" >/dev/null 2>&1 && fail "put-secret wrote over 
 [ "$(stat -c %a "$data/app/dir" 2>/dev/null || stat -f %Lp "$data/app/dir")" = 755 ] || fail "put-secret changed a directory's mode"
 ok "put-secret trims surrounding whitespace, stores 0600 (also over an existing file), never echoes, refuses a blank secret or a directory"
 
+# workstation: a one-line 0600 file under ~ that kyquickstart reads here (identity.mail.password_file).
+wput() { HOME=$work XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$@"; }
+pw=$work/.config/kyq/smtp.password
+out=$(printf '  smtp-pw-9 \n' | wput "$pw" 2>&1) || fail "put-secret workstation: $out"
+[ "$(cat "$pw"; echo .)" = $'smtp-pw-9\n.' ] || fail "put-secret workstation stored $(od -c "$pw")"
+# shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
+[ "$(ls -l "$pw" | cut -c1-10)" = -rw------- ] || fail "put-secret workstation file not 0600"
+grep -q smtp-pw-9 <<<"$out" && fail "put-secret workstation echoed the secret"
+chmod 644 "$pw"
+printf 'pw-2' | wput "$pw" >/dev/null 2>&1 || fail "put-secret workstation over an existing file"
+# shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
+[ "$(cat "$pw")" = pw-2 ] && [ "$(ls -l "$pw" | cut -c1-10)" = -rw------- ] || fail "put-secret workstation over an existing file"
+printf 'a\nb' | wput "$pw" >/dev/null 2>&1 && fail "put-secret workstation stored several lines"
+[ "$(cat "$pw")" = pw-2 ] || fail "a refused multi-line secret changed the file"
+echo keep >"$work/target"
+ln -s "$work/target" "$work/.config/kyq/link"
+printf 'x' | wput "$work/.config/kyq/link" >/dev/null 2>&1 && fail "put-secret workstation wrote through a symlink"
+[ "$(cat "$work/target")" = keep ] || fail "put-secret workstation changed a symlink's target"
+printf 'x' | wput /tmp/kyqs-outside-home >/dev/null 2>&1 && fail "put-secret workstation wrote outside the home folder"
+printf 'x' | wput "$work/../escape" >/dev/null 2>&1 && fail "put-secret workstation took a .. path"
+[ -z "$(find "$work/.config/kyq" -name 'smtp.password.*')" ] || fail "put-secret workstation left a temporary file"
+grep -qF 'put-secret workstation' "$ROOT/bin/interview" || fail "interview: the relay password is not sent to put-secret workstation"
+ok "put-secret workstation stores one 0600 line under ~, never through a symlink, refuses several lines and other folders"
+
 # tmux_env: an already running tmux server would hand the new session its own environment.
 # shellcheck disable=SC2016 # expands in the inner bash
 envs=$(env -u KYQS_DATA KYQS_KYQUICKSTART='' KYQS_SSH_CONFIG=/x/reviewed bash -c 'source "$1"; tmux_env; printf "%s\n" "${TMUX_ENV[@]}"' t "$ROOT/kyqs-ai")

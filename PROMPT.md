@@ -34,7 +34,11 @@ and into a transcript. So:
 - When you need a secret only the user has (a DNS API token, a mail password), do **not** ask
   for it in chat. Tell them to run, in their own terminal:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
-  `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
+  `put-secret` takes only `local`, `kyq-*` and `workstation` targets. The SMTP relay password is
+  read by `kyquickstart` on this computer, not by a server: give them
+  `kyqs-ai put-secret workstation ~/.config/kyq/smtp.password` (a 0600 one-line file; you may
+  not read it), and set KyIdentity's `identity.mail.password_file` in `stack.yaml` to that
+  file's absolute path (`$HOME` expanded), on Docker and Kubernetes sites alike. The Cloudflare DNS token for NPM on a
   `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
   `npm` app has been applied (it creates the namespace; for an existing NPM, `kyq-edge` must
   already exist with the label `ky.managed-by=kyquickstart`, `docs/edge.md`). Give them this as a `step` line in
@@ -182,7 +186,7 @@ and stay out of public DNS; external names go under the domain and outside the i
 With `lan_dns`, KyDNS's private zone must contain both domains.
 
 A DNS token or SMTP password arrives through `put-secret` (a DNS token for NPM on Kubernetes
-through the user's `kubectl` step in section 0), never in chat; on an existing proxy
+through the user's `kubectl` step in section 0; the SMTP password through `put-secret workstation`), never in chat; on an existing proxy
 you touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.

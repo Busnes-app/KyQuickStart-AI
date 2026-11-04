@@ -52,6 +52,8 @@ usage: kyqs-ai [command]
                                  bin/prepare-host.sh at a server console yourself
   put-secret <target> <path>     Paste a secret straight onto local or kyq-<name> (hidden), e.g.
                                  a Cloudflare token the agent asked for. Path under /srv/ky/.
+                                 Target workstation: a one-line file under your home folder that
+                                 kyquickstart reads here, e.g. ~/.config/kyq/smtp.password
   dashboard [run-dir]            Live status board (latest run by default)
   resume                         Restart the agent on the latest run where it left off
   upgrade [run-dir]              Upgrade an installed suite (latest run by default): fetch the
@@ -467,12 +469,13 @@ hosts() {
 
 # shellcheck disable=SC2029 # the path is validated, then expanded locally on purpose
 put_secret() {
-	[ $# = 2 ] || die "usage: kyqs-ai put-secret <local|kyq-name> </srv/ky/... path>"
-	[[ $1 == local || $1 =~ ^kyq-[a-z0-9-]+$ ]] || die "target must be local or kyq-<name>"
+	[ $# = 2 ] || die "usage: kyqs-ai put-secret <local|kyq-name|workstation> <path>"
+	[[ $1 == local || $1 == workstation || $1 =~ ^kyq-[a-z0-9-]+$ ]] || die "target must be local, workstation or kyq-<name>"
 	local root=/srv/ky
 	[ "$1" = local ] && root=$DATA
+	[ "$1" = workstation ] && root=${HOME%/}
 	[[ $2 == "$root"/* && $2 =~ ^/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under $root/"
-	[ "$1" = local ] || key_loaded
+	[ "$1" = workstation ] || [ "$1" = local ] || key_loaded
 	local v line='' more=''
 	if [ -t 0 ]; then
 		read -r -s -p "Paste the secret (hidden), then Enter: " v
@@ -490,8 +493,29 @@ put_secret() {
 	v=${v#"${v%%[![:space:]]*}"}
 	v=${v%"${v##*[![:space:]]}"}
 	[ -n "$v" ] || die "empty secret; nothing stored"
+	if [ "$1" = workstation ]; then
+		put_workstation "$2" "$v"
+		return
+	fi
 	printf '%s' "$v" | "$ROOT/bin/on" "$1" "umask 077 && mkdir -p \"\$(dirname '$2')\" && { [ ! -e '$2' ] || { [ -f '$2' ] || { echo '$2 is not a file' >&2; exit 1; }; chmod 600 '$2'; }; } && cat > '$2'"
 	say "stored on $1 at $2 (mode 0600). The agent can now use it without seeing it."
+}
+
+# A file read on this computer, such as KyQuickStart's identity.mail.password_file: one line,
+# a 0600 regular file, never written through a symlink (a rename replaces the file, never follows).
+put_workstation() {
+	local f=$1 tmp nl=$'\n' cr=$'\r'
+	[[ $2 != *"$nl"* && $2 != *"$cr"* ]] || die "that was several lines; nothing stored"
+	[ ! -L "$f" ] || die "$f is a symlink; nothing stored"
+	[ ! -e "$f" ] || [ -f "$f" ] || die "$f is not a file; nothing stored"
+	(umask 077 && mkdir -p "$(dirname "$f")") || die "cannot create $(dirname "$f")"
+	tmp=$(umask 077 && mktemp "$f.XXXXXX") || die "cannot write in $(dirname "$f")"
+	if printf '%s\n' "$2" >"$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$f"; then
+		say "stored at $f (mode 0600, this computer). The agent can now use it without seeing it."
+	else
+		rm -f "$tmp"
+		die "could not store $f"
+	fi
 }
 
 # claim_run <run>: one launcher per run, so two agents never edit the same plan and state files.
@@ -557,7 +581,7 @@ launch() { # <agent> <hands-off:yes|no> <run> <kickoff>
 			# Every run's handover sheet, every registered kubeconfig and the user's own SSH keys and
 			# kubeconfigs hold what the agent must not see.
 			[[ $STATE != *[\"\\]* ]] || die "$STATE: a path with \" or \\ cannot go into the hands-off settings"
-			deny="\"Read(./handover.txt)\", \"Read(/$RUNS/*/handover.txt)\", \"Read(~/.ssh/**)\", \"Read(~/.kube/**)\", \"Read(/$CLUSTERS/**)\""
+			deny="\"Read(./handover.txt)\", \"Read(/$RUNS/*/handover.txt)\", \"Read(~/.ssh/**)\", \"Read(~/.kube/**)\", \"Read(~/.config/kyq/**)\", \"Read(/$CLUSTERS/**)\""
 			mkdir -p "$run/.claude"
 			cat >"$run/.claude/settings.json" <<EOF
 {
