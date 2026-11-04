@@ -39,7 +39,8 @@ and into a transcript. So:
   `npm` app has been applied (it creates the namespace). Give them this as a `step` line in
   `handover.tsv` and in chat, for their own terminal; the name, namespace and key are
   KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
-  `credentials: {secret: cloudflare-dns, key: api_token}`:
+  `credentials: {secret: cloudflare-dns, key: api_token}`. Both commands use the current
+  kubectl context: tell the user to `export KUBECONFIG=<their admin kubeconfig for that cluster>` first.
   `bash -c 'read -rsp "Cloudflare token: " T && echo && printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
   then `kubectl -n kyq-edge label secret cloudflare-dns ky.managed-by=kyquickstart --overwrite`.
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
@@ -405,9 +406,9 @@ Kubernetes app, and never call one backed up through kyquickstart.
    logins to `handover.tsv` and its findings to `feedback.md`.
 
 **Accounts.** In KyIdentity create two people:
-- **Administrator** (the login the user chose, e.g. `alex-admin`): gets each product's admin
+- **Administrator** (the admin username the user chose): gets each product's admin
   role and nothing else. No everyday app access where the product enforces it.
-- **Everyday** (e.g. `alex`): gets each product's ordinary user role, no admin grant anywhere.
+- **Everyday** (the everyday username the user chose): gets each product's ordinary user role, no admin grant anywhere.
 Generate their initial passwords on the identity server (or use activation links if KyIdentity
 issues them), record the locations in `handover.tsv`, and add "enrol MFA/passkey for both" as
 a handover step. **Verify both email addresses** (KyIdentity sends a link once mail delivery

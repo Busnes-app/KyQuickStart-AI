@@ -75,7 +75,7 @@ For Claude Code the launcher writes `.claude/settings.json` in the run folder (l
 allowed are `ssh`, `scp`, `curl`, `dig`, `getent`, `git clone`/`-C`/`ls-remote`, the run's
 helpers (`./bin/on`, `./bin/progress`, `./bin/redact`, `./bin/handover`, `./bin/kyquickstart`)
 with any arguments, and the Read, Edit and Write tools with no path limit. The denies are `Read`
-on each registered kubeconfig, on `~/.ssh/**` and `~/.kube/**`, and on the run's `handover.txt`. For Codex, `-a never` inside its `workspace-write` sandbox with
+on every registered kubeconfig, on `~/.ssh/**` and `~/.kube/**`, and on the `handover.txt` of this and every other run. For Codex, `-a never` inside its `workspace-write` sandbox with
 network on (lines 373-378). Gemini CLI and opencode get no hands-off mode.
 
 The allow-list removes prompts for the commands an install needs. **It is not a sandbox**:
@@ -114,7 +114,7 @@ an enforcement"); supervised mode is the choice for anyone who wants to approve 
 |---|---|---|
 | Command injection through names and addresses | `add-host` accepts only `[a-z0-9-]` names, `[A-Za-z0-9.:-]` addresses, numeric ports and `[A-Za-z0-9._-]` logins; kubeconfig paths only `[A-Za-z0-9._/-]` | `kyqs-ai` lines 197-200, 266 |
 | Shell reinterpretation on the server | Root scripts sent base64 and decoded by `sh`; the key argument is base64 too | `kyqs-ai` `remote_root`, `bin/prepare-host.sh` |
-| Man-in-the-middle at first contact | The server reports its ed25519 fingerprint over your own admin login; a different network answer stops `add-host`; `--prepared` makes you compare it by hand | `kyqs-ai` lines 218-236, `test/e2e.sh` |
+| Man-in-the-middle at first contact | The server reports its ed25519 fingerprint over your own admin login; a different network answer stops `add-host`; `--prepared` makes you compare it by hand. The cross-check is only as good as your admin login's own trust in the server: on a first login, check the key ssh asks you to accept, or use `--prepared` | `kyqs-ai` lines 218-236, `test/e2e.sh` |
 | Changed host key later | A different key for a pinned alias is never accepted; ssh runs with `StrictHostKeyChecking yes` | `kyqs-ai` lines 237-242, `test/e2e.sh` ("a changed host key is refused") |
 | Path traversal when storing or reading secrets | `put-secret` requires a path under `/srv/ky/` of `[A-Za-z0-9._/-]` with no `..`; `bin/handover` refuses unsafe hosts and paths | `kyqs-ai` `put_secret`, `bin/handover` `fetch`, both tests |
 | Secrets in files others can read | `umask 077` for the run folder, secrets and the handover; kubeconfigs must be private | `kyqs-ai` line 582, `bin/handover`, `put_secret` |

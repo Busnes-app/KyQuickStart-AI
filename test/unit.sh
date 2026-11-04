@@ -110,7 +110,15 @@ printf 'kube-lab\n' >"$f/hosts.txt"
 out=$(printf 'lab.example.com\n\n\n\n' | "$ROOT/bin/interview" "$f" 2>&1 || true)
 grep -qF 'Cloudflare DNS (you create the Secret with kubectl)' <<<"$out" || fail "interview: Kubernetes-only site sent to put-secret for the DNS token"
 grep -qF 'put-secret)' <<<"$out" && fail "interview: Kubernetes-only site offered put-secret"
-ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; offers NPM on Docker; q quits"
+# Ctrl-C (here TERM: a background job ignores INT) ends the form like q, so the launcher cleans up.
+"$ROOT/bin/interview" "$f" < <(sleep 5) >/dev/null 2>&1 &
+p=$!
+sleep 1
+kill -TERM "$p"
+rc=0
+wait "$p" || rc=$?
+[ "$rc" = 1 ] || fail "interview did not exit 1 on a signal (status $rc)"
+ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; offers NPM on Docker; q and signals quit"
 
 data=$work/srv-ky
 mkdir -p "$data"
@@ -129,7 +137,10 @@ for blank in '' $'\n \t\n'; do
 	printf '%s' "$blank" | put "$data/app/empty" >/dev/null 2>&1 && fail "put-secret accepted a blank secret"
 	[ ! -e "$data/app/empty" ] || fail "a refused blank secret left a file"
 done
-ok "put-secret trims surrounding whitespace, stores 0600 (also over an existing file), never echoes, refuses a blank secret"
+mkdir -m 755 "$data/app/dir"
+printf 'x' | put "$data/app/dir" >/dev/null 2>&1 && fail "put-secret wrote over a directory"
+[ "$(stat -c %a "$data/app/dir" 2>/dev/null || stat -f %Lp "$data/app/dir")" = 755 ] || fail "put-secret changed a directory's mode"
+ok "put-secret trims surrounding whitespace, stores 0600 (also over an existing file), never echoes, refuses a blank secret or a directory"
 
 # tmux_env: an already running tmux server would hand the new session its own environment.
 # shellcheck disable=SC2016 # expands in the inner bash
@@ -137,8 +148,37 @@ envs=$(env -u KYQS_DATA KYQS_KYQUICKSTART='' KYQS_SSH_CONFIG=/x/reviewed bash -c
 grep -qx 'KYQS_KYQUICKSTART=' <<<"$envs" || fail "tmux_env dropped a set-but-empty KYQS_KYQUICKSTART: $envs"
 grep -qx 'KYQS_SSH_CONFIG=/x/reviewed' <<<"$envs" || fail "tmux_env dropped KYQS_SSH_CONFIG: $envs"
 grep -q '^PATH=' <<<"$envs" || fail "tmux_env dropped PATH: $envs"
-grep -q '^KYQS_DATA' <<<"$envs" && fail "tmux_env invented an unset KYQS_DATA: $envs"
-ok "tmux sessions keep the selected profiles, paths and an empty KYQS_KYQUICKSTART"
+grep -q '^KYQS_DATA=' <<<"$envs" && fail "tmux_env invented an unset KYQS_DATA: $envs"
+# An unset setting must not come back from the tmux server's own environment.
+# shellcheck disable=SC2016 # expands in the inner bash
+got=$(env -u KYQS_DATA bash -c 'source "$1"; tmux_env; KYQS_DATA=/stale env "${TMUX_ENV[@]}" sh -c "echo \${KYQS_DATA-unset}"' t "$ROOT/kyqs-ai")
+[ "$got" = unset ] || fail "tmux_env let a stale KYQS_DATA through: $got"
+grep -q 'exec tmux -L kyqs-ai new-session' "$ROOT/kyqs-ai" || fail "the run's tmux session is not on its own server"
+ok "tmux sessions keep the selected profiles, paths and an empty KYQS_KYQUICKSTART, and drop stale ones"
+
+# A release kyq_update put in ~/.local/bin beside a system copy it could not replace wins.
+kb=$work/kyqbin
+mkdir -p "$kb/sys" "$kb/home/.local/bin"
+printf '#!/bin/sh\necho 1\n' >"$kb/sys/kyquickstart"
+cp "$kb/sys/kyquickstart" "$kb/home/.local/bin/kyquickstart"
+chmod +x "$kb/sys/kyquickstart" "$kb/home/.local/bin/kyquickstart"
+# shellcheck disable=SC2016 # expands in the inner bash
+kyqbin() { env -u KYQS_KYQUICKSTART HOME="$kb/home" PATH="$kb/sys:$PATH" bash -c 'source "$1"; echo "$KYQ_BIN"' t "$ROOT/kyqs-ai"; }
+[ "$(kyqbin)" = "$kb/sys/kyquickstart" ] || fail "a writable copy on PATH lost to ~/.local/bin: $(kyqbin)"
+chmod 555 "$kb/sys"
+got=$(kyqbin)
+chmod 755 "$kb/sys"
+[ "$got" = "$kb/home/.local/bin/kyquickstart" ] || [ "$(id -u)" = 0 ] || fail "the system copy hid the updated ~/.local/bin one: $got"
+ok "kyquickstart: an update installed beside a read-only system copy is the one used"
+
+# finish: a pager that fails still leaves the print offer and the reminders.
+fr=$work/finish
+mkdir -p "$fr"
+printf 'Suite\tstep\tEnrol MFA\tKyIdentity\n' >"$fr/handover.tsv"
+# shellcheck disable=SC2016 # expands in the inner bash
+out=$(printf 'y\nn\n' | PAGER=false bash -c 'source "$1"; finish "$2"' t "$ROOT/kyqs-ai" "$fr" 2>&1) || fail "finish stopped at a failing pager: $out"
+grep -q 'remove the agent' <<<"$out" || fail "a failing pager skipped the reminders: $out"
+ok "finish carries on past a failing pager"
 
 # run_agent: the run's own one-key ssh-agent follows the run's kyquickstart copy, not PATH, and a
 # failed start never falls back to (or kills) the user's agent.
