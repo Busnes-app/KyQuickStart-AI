@@ -384,6 +384,11 @@ printf '#!/bin/sh\necho 0.4.2.8\n' >"$ug/kyquickstart"
 out=$(kyqs_up "$old") && fail "upgrade installed an older kyquickstart: $out"
 grep -q 'older than the run' <<<"$out" || fail "downgrade refusal: $out"
 [ "$("$old/bin/kyquickstart" version)" = 0.4.2.10 ] || fail 'a refused downgrade replaced the binary'
+# a run binary that no longer runs is replaced, not a silent exit
+printf '#!/bin/sh\nexit 7\n' >"$old/bin/kyquickstart"
+out=$(kyqs_up "$old") || fail "upgrade stopped on a run binary that does not run: $out"
+grep -q 'does not run here' <<<"$out" || fail "upgrade did not say the run binary is broken: $out"
+cmp -s "$ug/kyquickstart" "$old/bin/kyquickstart" || fail 'upgrade did not replace a broken run binary'
 # a still-running old binary blocks overwriting it (Linux: "Text file busy"); rename a new file in
 printf '#!/bin/sh\necho 0.4.2.11\n' >"$ug/kyquickstart"
 ino=$(ls -i "$old/bin/kyquickstart")

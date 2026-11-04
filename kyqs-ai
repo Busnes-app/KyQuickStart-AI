@@ -11,7 +11,7 @@ KEY=$SSHD/id_ed25519
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/kyquickstart-ai
 RUNS=$STATE/runs
 LOCAL=$STATE/local-host # present when this computer is an install target
-REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
+REVOKED=$STATE/revoked   # one file per revoked target: empty for kyq-<name>, the server for kube-<name>
 CLUSTERS=$STATE/clusters # one file per kube-<name>: the agent's ServiceAccount kubeconfig
 KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || true)} # set but empty: none
 # kyq_update installs to ~/.local/bin, which macOS does not put on PATH.
@@ -99,13 +99,17 @@ EOF
 	fi
 }
 
-key_loaded() {
-	# Configs written before IdentityAgent was in the template: a user's own "Host * / IdentityAgent"
-	# (1Password, Secretive) would hide the agent that holds this key.
+# conf_agent: configs written before IdentityAgent was in the template get it, so a user's own
+# "Host * / IdentityAgent" (1Password, Secretive) cannot hide the agent that holds this key.
+conf_agent() {
 	if [ -f "$CONF" ] && ! grep -qx '  IdentityAgent SSH_AUTH_SOCK' "$CONF"; then
 		awk '{ print } $0 == "Host kyq-*" { print "  IdentityAgent SSH_AUTH_SOCK" }' "$CONF" >"$CONF.kyqs-ai.tmp"
 		cat "$CONF.kyqs-ai.tmp" >"$CONF" && rm -f "$CONF.kyqs-ai.tmp"
 	fi
+}
+
+key_loaded() {
+	conf_agent
 	ssh-keygen -y -P '' -f "$KEY" >/dev/null 2>&1 && return # no passphrase
 	local fp
 	fp=$(ssh-keygen -lf "$KEY.pub" | awk '{print $2}')
@@ -451,6 +455,7 @@ target_facts() {
 
 hosts() {
 	local a any='' why
+	conf_agent
 	for a in $(targets); do
 		any=1
 		why=$(target_problem "$a")
@@ -874,11 +879,14 @@ upgrade() {
 	[ -n "$run" ] || run=$(latest_run)
 	run=$(CDPATH='' cd -- "$run" && pwd) || die "no run folder $run"
 	[ -f "$run/kyq/stack.yaml" ] || die "$run has no installed plan (kyq/stack.yaml); nothing to upgrade"
-	access_left "$run" || confirm "The agent cannot reach these. Upgrade anyway?" || die "give the agent access again (above), then run kyqs-ai upgrade"
 	[ ! -t 0 ] || kyq_update
 	[ -n "$KYQ_BIN" ] || die "upgrading needs kyquickstart: install a release, or set KYQS_KYQUICKSTART"
 	claim_run "$run"
-	have=$(run_kyq_version "$run")
+	access_left "$run" || confirm "The agent cannot reach these. Upgrade anyway?" || die "give the agent access again (above), then run kyqs-ai upgrade"
+	have=$(run_kyq_version "$run") || {
+		say "The run's kyquickstart does not run here (its version check failed); replacing it."
+		have=none
+	}
 	new=$("$KYQ_BIN" version | head -1) || die "$KYQ_BIN does not run here (its version check failed)"
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
 	umask 077
