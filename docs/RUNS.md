@@ -21,18 +21,7 @@ It gives you a command that stores it straight on the server:
 It strips leading and trailing spaces and blank lines from what you paste, stores the rest
 without a final newline, and refuses an empty secret. You can also pipe the value in.
 
-For an SMTP relay password, which `kyquickstart` reads on this computer, the target is
-`workstation` and the path is a file in `~/.config/kyq/`:
-
-```sh
-./kyqs-ai put-secret workstation ~/.config/kyq/smtp.password   # one line, stored 0600
-```
-
-It refuses several lines and any other folder, and will not write through a symlink. Claude
-Code is denied Read on `~/.config/kyq/`. Keep the file after the install: every later
-`kyquickstart apply` reads it again.
-
-Otherwise `put-secret` takes `local` and `kyq-<name>` targets only. For a Cloudflare DNS token used by
+`put-secret` takes `local` and `kyq-<name>` targets only. For a Cloudflare DNS token used by
 NPM on a Kubernetes cluster, the agent gives you a `kubectl` command instead: run it with your
 admin kubeconfig. It asks for the token at a hidden prompt and stores it as the Secret
 `kyq-edge/cloudflare-dns`, the one KyQuickStart's `docs/edge.md` names.
