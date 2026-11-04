@@ -181,6 +181,15 @@ mkdir -p "$work/elsewhere/kyq" "$work/sl/.config" && ln -s "$work/elsewhere/kyq"
 printf 'x' | HOME=$work/sl XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$work/sl/.config/kyq/pw" >/dev/null 2>&1 &&
 	fail "put-secret workstation wrote through a symlinked ~/.config/kyq"
 [ ! -e "$work/elsewhere/kyq/pw" ] || fail "put-secret workstation followed a symlinked ~/.config/kyq"
+# A symlinked ~/.config is fine inside the home folder, refused when it leads out of it.
+outside=$(mktemp -d "${TMPDIR:-/tmp}/kyqs-outside.XXXXXX")
+mkdir -p "$work/h1/dotfiles/config" "$work/h2" && ln -s "$work/h1/dotfiles/config" "$work/h1/.config" && ln -s "$outside" "$work/h2/.config"
+printf 'x' | HOME=$work/h1 XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$work/h1/.config/kyq/pw" >/dev/null 2>&1 ||
+	fail "put-secret workstation refused a ~/.config symlinked inside the home folder"
+printf 'x' | HOME=$work/h2 XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$work/h2/.config/kyq/pw" >/dev/null 2>&1 &&
+	fail "put-secret workstation wrote through a ~/.config that leads outside the home folder"
+[ -z "$(ls -A "$outside")" ] || fail "put-secret workstation wrote outside the home folder"
+rm -rf "$outside"
 printf 'x' | wput /tmp/kyqs-outside-home >/dev/null 2>&1 && fail "put-secret workstation wrote outside the home folder"
 printf 'x' | wput "$work/.config/kyq/.." >/dev/null 2>&1 && fail "put-secret workstation took a .. path"
 [ -z "$(find "$work/.config/kyq" -name 'smtp.password.*')" ] || fail "put-secret workstation left a temporary file"

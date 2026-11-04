@@ -516,6 +516,10 @@ put_workstation() {
 	[[ $2 != *"$nl"* && $2 != *"$cr"* ]] || die "that was several lines; nothing stored"
 	[ "$(LC_ALL=C && printf %s ${#2})" -le 1024 ] || die "longer than 1024 bytes (kyquickstart's limit); nothing stored"
 	[ ! -L "$(dirname "$f")" ] || die "$(dirname "$f") is a symlink; nothing stored"
+	# A symlinked ~/.config may lead elsewhere in your home folder, never out of it.
+	if [ -d "$HOME/.config" ] && [[ $(cd "$HOME/.config" && pwd -P) != "$(cd "$HOME" && pwd -P)"/* ]]; then
+		die "$HOME/.config leads outside your home folder; nothing stored"
+	fi
 	[ ! -L "$f" ] || die "$f is a symlink; nothing stored"
 	[ ! -e "$f" ] || [ -f "$f" ] || die "$f is not a file; nothing stored"
 	(umask 077 && mkdir -p "$(dirname "$f")") || die "cannot create $(dirname "$f")"
