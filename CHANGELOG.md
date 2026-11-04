@@ -30,8 +30,8 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   through a symlink) for `identity.mail.password_file`, on Docker and Kubernetes sites alike.
   Claude hands-off denies Read on `~/.config/kyq/`.
 - Hostile-review pass 4. Claude Code gets the Read denies (handover sheets, `~/.ssh`,
-  `~/.kube`, kubeconfigs) in supervised mode too. `put-secret workstation` replaces only an
-  earlier one-line 0600 secret, never another file, and refuses more than 1024 bytes. A
+  `~/.kube`, `~/.config/kyq`, kubeconfigs) in supervised mode too. `put-secret workstation` writes only in
+  `~/.config/kyq/` (the folder the agent is denied) and refuses more than 1024 bytes. A
   failed handover rebuild keeps the last good sheet. `bin/redact` masks a quoted value whole,
   spaces and commas included. A second `revoke kube-<name>` after `remove-cluster` still
   refuses another cluster. `upgrade` keeps its downgrade guard when the run's `kyquickstart`

@@ -58,9 +58,9 @@ grep -qE 'abc123|zz|eyJ|482913|731058|S3cretPw|hunter2' <<<"$r" && fail "redact 
 grep -qF 'https://example.com:8443/a@b' <<<"$r" || fail "redact mangled a URL without credentials: $r"
 grep -q 'pid 123456' <<<"$r" || fail "redact masked a number on an unrelated line"
 grep -qx keyboard <<<"$r" || fail "redact mangled a plain line"
-r=$(printf '%s\n' '{"password":"correct horse staple","user":"bob"}' '{"token":"abc,def|ghi}"}' "secret: 'two words'" \
+r=$(printf '%s\n' '{"password":"correct horse staple","user":"bob"}' '{"token":"abc,def|ghi}"}' "secret: 'two words'" "password: 'correct'' horse'" \
 	'{"api_key":"a\"b c"}' | "$ROOT/bin/redact")
-grep -qE 'horse|staple|def|ghi|words|b c' <<<"$r" && fail "redact leaked part of a quoted value: $r"
+grep -qE 'horse|staple|def|ghi|words|b c|correct' <<<"$r" && fail "redact leaked part of a quoted value: $r"
 grep -qF '"user":"bob"' <<<"$r" || fail "redact swallowed the next JSON field: $r"
 ok "redact masks password, secret, bearer, URL-credential and pairing-code values, quoted ones whole"
 
@@ -153,7 +153,7 @@ printf 'x' | put "$data/app/dir" >/dev/null 2>&1 && fail "put-secret wrote over 
 [ "$(stat -c %a "$data/app/dir" 2>/dev/null || stat -f %Lp "$data/app/dir")" = 755 ] || fail "put-secret changed a directory's mode"
 ok "put-secret trims surrounding whitespace, stores 0600 (also over an existing file), never echoes, refuses a blank secret or a directory"
 
-# workstation: a one-line 0600 file under ~ that kyquickstart reads here (identity.mail.password_file).
+# workstation: a one-line 0600 file in ~/.config/kyq that kyquickstart reads here (identity.mail.password_file).
 wput() { HOME=$work XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$@"; }
 pw=$work/.config/kyq/smtp.password
 out=$(printf '  smtp-pw-9 \n' | wput "$pw" 2>&1) || fail "put-secret workstation: $out"
@@ -164,16 +164,12 @@ grep -q smtp-pw-9 <<<"$out" && fail "put-secret workstation echoed the secret"
 printf 'pw-2' | wput "$pw" >/dev/null 2>&1 || fail "put-secret workstation over an earlier secret"
 # shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
 [ "$(cat "$pw")" = pw-2 ] && [ "$(ls -l "$pw" | cut -c1-10)" = -rw------- ] || fail "put-secret workstation over an earlier secret"
-# Never a file that is not an earlier secret, such as ~/.gitconfig or ~/.ssh/config.
-printf '[user]\n' >"$work/.gitconfig"
-mkdir -p "$work/.ssh" && printf 'Host a\n  Port 2\n' >"$work/.ssh/config" && chmod 600 "$work/.ssh/config"
-for f in "$work/.gitconfig" "$work/.ssh/config"; do
-	cp "$f" "$work/before"
-	printf 'x' | wput "$f" >/dev/null 2>&1 && fail "put-secret workstation replaced $f"
-	cmp -s "$f" "$work/before" || fail "put-secret workstation changed $f"
+# Only a file directly in ~/.config/kyq, where the agent is denied Read: never ~/.git-credentials or a run folder.
+printf 'https://bob:tok@example.com' >"$work/.git-credentials" && chmod 600 "$work/.git-credentials"
+for f in "$work/.git-credentials" "$work/state/run.pw" "$work/.config/kyq/sub/x"; do
+	printf 'x' | wput "$f" >/dev/null 2>&1 && fail "put-secret workstation wrote $f"
 done
-out=$(printf 'x' | wput "$work/other.pw" 2>&1) || fail "put-secret workstation outside ~/.config/kyq: $out"
-grep -qF 'outside ~/.config/kyq/' <<<"$out" || fail "put-secret workstation did not warn about a file outside ~/.config/kyq: $out"
+[ "$(cat "$work/.git-credentials")" = https://bob:tok@example.com ] || fail "put-secret workstation changed ~/.git-credentials"
 head -c 1025 /dev/zero | tr '\0' x | wput "$work/.config/kyq/long" >/dev/null 2>&1 && fail "put-secret workstation took more than 1024 bytes"
 printf 'a\nb' | wput "$pw" >/dev/null 2>&1 && fail "put-secret workstation stored several lines"
 [ "$(cat "$pw")" = pw-2 ] || fail "a refused multi-line secret changed the file"
@@ -181,11 +177,15 @@ echo keep >"$work/target"
 ln -s "$work/target" "$work/.config/kyq/link"
 printf 'x' | wput "$work/.config/kyq/link" >/dev/null 2>&1 && fail "put-secret workstation wrote through a symlink"
 [ "$(cat "$work/target")" = keep ] || fail "put-secret workstation changed a symlink's target"
+mkdir -p "$work/elsewhere/kyq" "$work/sl/.config" && ln -s "$work/elsewhere/kyq" "$work/sl/.config/kyq"
+printf 'x' | HOME=$work/sl XDG_STATE_HOME=$work/state "$ROOT/kyqs-ai" put-secret workstation "$work/sl/.config/kyq/pw" >/dev/null 2>&1 &&
+	fail "put-secret workstation wrote through a symlinked ~/.config/kyq"
+[ ! -e "$work/elsewhere/kyq/pw" ] || fail "put-secret workstation followed a symlinked ~/.config/kyq"
 printf 'x' | wput /tmp/kyqs-outside-home >/dev/null 2>&1 && fail "put-secret workstation wrote outside the home folder"
-printf 'x' | wput "$work/../escape" >/dev/null 2>&1 && fail "put-secret workstation took a .. path"
+printf 'x' | wput "$work/.config/kyq/.." >/dev/null 2>&1 && fail "put-secret workstation took a .. path"
 [ -z "$(find "$work/.config/kyq" -name 'smtp.password.*')" ] || fail "put-secret workstation left a temporary file"
 grep -qF 'put-secret workstation' "$ROOT/bin/interview" || fail "interview: the relay password is not sent to put-secret workstation"
-ok "put-secret workstation stores one 0600 line under ~, never through a symlink, refuses several lines and other folders"
+ok "put-secret workstation stores one 0600 line in ~/.config/kyq only, never through a symlink, refuses several lines and other folders"
 
 # tmux_env: an already running tmux server would hand the new session its own environment.
 # shellcheck disable=SC2016 # expands in the inner bash

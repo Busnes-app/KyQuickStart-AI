@@ -52,7 +52,7 @@ usage: kyqs-ai [command]
                                  bin/prepare-host.sh at a server console yourself
   put-secret <target> <path>     Paste a secret straight onto local or kyq-<name> (hidden), e.g.
                                  a Cloudflare token the agent asked for. Path under /srv/ky/.
-                                 Target workstation: a one-line file under your home folder that
+                                 Target workstation: a one-line file in ~/.config/kyq/ that
                                  kyquickstart reads here, e.g. ~/.config/kyq/smtp.password
   dashboard [run-dir]            Live status board (latest run by default)
   resume                         Restart the agent on the latest run where it left off
@@ -473,10 +473,14 @@ hosts() {
 put_secret() {
 	[ $# = 2 ] || die "usage: kyqs-ai put-secret <local|kyq-name|workstation> <path>"
 	[[ $1 == local || $1 == workstation || $1 =~ ^kyq-[a-z0-9-]+$ ]] || die "target must be local, workstation or kyq-<name>"
-	local root=/srv/ky
+	local root=/srv/ky kyq=${HOME%/}/.config/kyq
 	[ "$1" = local ] && root=$DATA
-	[ "$1" = workstation ] && root=${HOME%/}
-	[[ $2 == "$root"/* && $2 =~ ^/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under $root/"
+	if [ "$1" = workstation ]; then
+		# Only there is the agent denied Read while the run goes on, and nothing else of yours lives there.
+		[[ $2 == "$kyq"/* && ${2#"$kyq"/} =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] || die "path must be a file in ~/.config/kyq/, e.g. $kyq/smtp.password"
+	else
+		[[ $2 == "$root"/* && $2 =~ ^/[A-Za-z0-9._/-]+$ && $2 != *..* ]] || die "path must be under $root/"
+	fi
 	[ "$1" = workstation ] || [ "$1" = local ] || key_loaded
 	local v line='' more=''
 	if [ -t 0 ]; then
@@ -511,14 +515,9 @@ put_workstation() {
 	local f=$1 nl=$'\n' cr=$'\r'
 	[[ $2 != *"$nl"* && $2 != *"$cr"* ]] || die "that was several lines; nothing stored"
 	[ "$(LC_ALL=C && printf %s ${#2})" -le 1024 ] || die "longer than 1024 bytes (kyquickstart's limit); nothing stored"
+	[ ! -L "$(dirname "$f")" ] || die "$(dirname "$f") is a symlink; nothing stored"
 	[ ! -L "$f" ] || die "$f is a symlink; nothing stored"
 	[ ! -e "$f" ] || [ -f "$f" ] || die "$f is not a file; nothing stored"
-	# Only an earlier secret is replaced, never a config file the agent named by mistake.
-	# shellcheck disable=SC2012 # ls -l is the portable mode read (BSD and GNU)
-	if [ -e "$f" ] && { [ "$(ls -l "$f" | cut -c1-10)" != -rw------- ] || [ "$(wc -l <"$f")" -gt 1 ]; }; then
-		die "$f already exists and is not a one-line 0600 secret file; nothing stored. Pick a new file under ~/.config/kyq/"
-	fi
-	[[ $f == "${HOME%/}"/.config/kyq/* ]] || say "Note: $f is outside ~/.config/kyq/, where Claude hands-off is denied Read; prefer a file there."
 	(umask 077 && mkdir -p "$(dirname "$f")") || die "cannot create $(dirname "$f")"
 	PUT_TMP=$(umask 077 && mktemp "$f.XXXXXX") || die "cannot write in $(dirname "$f")"
 	trap 'rm -f "$PUT_TMP"' EXIT
@@ -641,7 +640,7 @@ finish() {
 	say ""
 	say "── agent session ended ──"
 	if [ -f "$run/handover.tsv" ]; then
-		"$ROOT/bin/handover" "$run" || true
+		"$ROOT/bin/handover" "$run" || say "The sheet may lack what failed above (a failed rebuild keeps the last good one)."
 		if [ -f "$run/handover.txt" ]; then
 			if confirm "Show the handover sheet (passwords) on screen now?"; then ${PAGER:-less} "$run/handover.txt" || say "Could not show it: open $run/handover.txt yourself."; fi
 			if command -v lp >/dev/null && confirm "Send it to your default printer?"; then lp "$run/handover.txt" || say "Printing failed."; fi

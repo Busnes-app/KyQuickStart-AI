@@ -22,16 +22,15 @@ It strips leading and trailing spaces and blank lines from what you paste, store
 without a final newline, and refuses an empty secret. You can also pipe the value in.
 
 For an SMTP relay password, which `kyquickstart` reads on this computer, the target is
-`workstation` and the path is a file under your home folder:
+`workstation` and the path is a file in `~/.config/kyq/`:
 
 ```sh
 ./kyqs-ai put-secret workstation ~/.config/kyq/smtp.password   # one line, stored 0600
 ```
 
-It refuses several lines, will not write through a symlink, and replaces an existing file only
-when it is already a one-line 0600 secret. Claude Code is denied Read on `~/.config/kyq/`, so
-keep such files there. Keep the file after the install: every later `kyquickstart apply` reads
-it again.
+It refuses several lines and any other folder, and will not write through a symlink. Claude
+Code is denied Read on `~/.config/kyq/`. Keep the file after the install: every later
+`kyquickstart apply` reads it again.
 
 Otherwise `put-secret` takes `local` and `kyq-<name>` targets only. For a Cloudflare DNS token used by
 NPM on a Kubernetes cluster, the agent gives you a `kubectl` command instead: run it with your
