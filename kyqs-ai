@@ -14,9 +14,8 @@ LOCAL=$STATE/local-host # present when this computer is an install target
 REVOKED=$STATE/revoked   # one empty file per kyq-<name> whose access was revoked
 CLUSTERS=$STATE/clusters # one file per kube-<name>: the agent's ServiceAccount kubeconfig
 KYQ_BIN=${KYQS_KYQUICKSTART-$(command -v kyquickstart || true)} # set but empty: none
-# kyq_update installs to ~/.local/bin (which macOS does not put on PATH) when there is no copy
-# or the one on PATH is in a folder it cannot write.
-if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -x "$HOME/.local/bin/kyquickstart" ] && { [ -z "$KYQ_BIN" ] || [ ! -w "$(dirname "$KYQ_BIN")" ]; }; then
+# kyq_update installs to ~/.local/bin, which macOS does not put on PATH.
+if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -z "$KYQ_BIN" ] && [ -x "$HOME/.local/bin/kyquickstart" ]; then
 	KYQ_BIN=$HOME/.local/bin/kyquickstart
 fi
 DATA=${KYQS_DATA:-/srv/ky} # override for tests only; the prompt assumes /srv/ky
@@ -216,7 +215,7 @@ add_host() {
 	ssh_setup
 	key_loaded
 	if grep -qx "Host $alias" "$CONF"; then
-		[ "$(ssh_connect -G "$alias" | awk '$1 == "hostname" || $1 == "port" {print $2}' | tr '\n' ' ')" = "$addr $port " ] ||
+		[ "$(ssh_connect -G "$alias" | awk '$1 == "hostname" || $1 == "port" {print $2}' | tr '\n' ' ')" = "$addr $((10#$port)) " ] ||
 			die "$alias already points elsewhere (another address or port); edit $CONF"
 	fi
 
@@ -407,7 +406,7 @@ revoke_cluster() { # <kube-name> <admin-kubeconfig>
 		die "$1 is registered for $was, but $2 points at $server; switch $2 to that cluster and re-run. Nothing was deleted."
 	# With no registration (remove-cluster, or a typo) nothing says this is the right cluster.
 	if [ -z "$was" ] && [ ! -f "$REVOKED/$1" ] && ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" -n "$KUBE_NS" get "serviceaccount/$sa" >/dev/null 2>&1; then
-		die "found no ServiceAccount $KUBE_NS/$sa on $server; nothing was revoked. Check the name, and that $2 is the cluster you added."
+		die "found no ServiceAccount $KUBE_NS/$sa on $server (or could not reach it); nothing was revoked. Check the name, and that $2 is the cluster you added."
 	fi
 	# The binding first, so a revoke that dies halfway has already removed the rights.
 	if ! "$ROOT/bin/kubectl-policy" --kubeconfig "$2" delete --ignore-not-found "clusterrolebinding/$sa" "clusterrole/$sa" >/dev/null ||
@@ -484,7 +483,7 @@ claim_run() {
 	if ! mkdir "$lock" 2>/dev/null; then
 		pid=$(cat "$lock/pid" 2>/dev/null) || true
 		if [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; then
-			die "another kyqs-ai${pid:+ (process $pid)} is running an agent on $1; finish that one first (tmux -L kyqs-ai ls lists a detached one). If none is running, delete $lock."
+			die "another kyqs-ai${pid:+ (process $pid)} is running an agent on $1; finish that one first (tmux ls lists a detached one). If none is running, delete $lock."
 		fi
 		# Left by a launcher that died. Take it over under a second lock, so only one launcher can.
 		mkdir "$lock.takeover" 2>/dev/null || die "another kyqs-ai just started on $1 (if none is running, delete $lock.takeover)"
@@ -677,6 +676,13 @@ latest_release() {
 older() { # <a> <b>: version a is older than b (X.Y.Z[.N])
 	[ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -1)" = "$1" ]
 }
+# kyq_update also installs to ~/.local/bin when the copy on PATH is in a folder it cannot write:
+# use that one once it is newer, or every start offers the same download again.
+KYQ_HOME_BIN=$HOME/.local/bin/kyquickstart
+if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -n "$KYQ_BIN" ] && [ "$KYQ_BIN" != "$KYQ_HOME_BIN" ] && [ ! -w "$(dirname "$KYQ_BIN")" ] &&
+	[ -x "$KYQ_HOME_BIN" ] && older "$("$KYQ_BIN" version 2>/dev/null | head -1)" "$("$KYQ_HOME_BIN" version 2>/dev/null | head -1)"; then
+	KYQ_BIN=$KYQ_HOME_BIN
+fi
 
 # kyq_update: offers the latest kyquickstart release when the one in use is older or missing.
 # The download must match the digest GitHub publishes for it and the release workflow's build
@@ -866,7 +872,7 @@ revoke() {
 		say "since the agent used your own account here."
 		return
 	fi
-	set -- "${1#kyq-}" "${@:2}" # hosts lists servers as kyq-<name>
+	grep -qx "Host kyq-$1" "$CONF" 2>/dev/null || set -- "${1#kyq-}" "${@:2}" # hosts lists servers as kyq-<name>
 	local alias=kyq-$1 admin=${2:-$USER}
 	grep -qx "Host $alias" "$CONF" 2>/dev/null || die "unknown server $alias"
 	remote_root "$(ssh_connect -G "$alias" | awk '$1 == "hostname" {print $2}')" "$(ssh_connect -G "$alias" | awk '$1 == "port" {print $2}')" \
@@ -901,8 +907,15 @@ case $cmd in start | resume | upgrade)
 	# tmux is installed. The window stays open after the run, so its last lines can be read.
 	if [ -z "${TMUX:-}" ] && [ -t 0 ] && command -v tmux >/dev/null; then
 		tmux_env
-		# shellcheck disable=SC2016 # $0, $@ and $? are the inner bash's, not this script's
-		exec tmux -L kyqs-ai new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '"$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$cmd" "$@"
+		# A running tmux server gives new sessions its own environment, not this shell's (API keys,
+		# proxies): pass it in a private file, not on argv, and delete it as the session starts.
+		envf=$(mktemp)
+		export -p >"$envf"
+		s=0
+		# shellcheck disable=SC2016 # $0, $1, $@ and $? are the inner bash's, not this script's
+		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '. "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?
+		rm -f "$envf"
+		exit "$s"
 	fi
 	;;
 esac
@@ -920,7 +933,7 @@ resume) resume ;;
 upgrade) upgrade "$@" ;;
 handover)
 	r=${1:-$(latest_run)}
-	! grep -q '^kyq-' "$r/hosts.txt" 2>/dev/null || key_loaded
+	! grep -qE $'\tsecret\t[^\t]*\tkyq-' "$r/handover.tsv" 2>/dev/null || key_loaded # only server secrets need it
 	"$ROOT/bin/handover" "$r"
 	;;
 revoke) revoke "$@" ;;

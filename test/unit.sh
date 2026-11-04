@@ -153,23 +153,26 @@ grep -q '^KYQS_DATA=' <<<"$envs" && fail "tmux_env invented an unset KYQS_DATA: 
 # shellcheck disable=SC2016 # expands in the inner bash
 got=$(env -u KYQS_DATA bash -c 'source "$1"; tmux_env; KYQS_DATA=/stale env "${TMUX_ENV[@]}" sh -c "echo \${KYQS_DATA-unset}"' t "$ROOT/kyqs-ai")
 [ "$got" = unset ] || fail "tmux_env let a stale KYQS_DATA through: $got"
-grep -q 'exec tmux -L kyqs-ai new-session' "$ROOT/kyqs-ai" || fail "the run's tmux session is not on its own server"
+# shellcheck disable=SC2016 # a literal line of kyqs-ai
+grep -qF 'export -p >"$envf"' "$ROOT/kyqs-ai" || fail "the tmux session is not handed this shell's environment"
 ok "tmux sessions keep the selected profiles, paths and an empty KYQS_KYQUICKSTART, and drop stale ones"
 
-# A release kyq_update put in ~/.local/bin beside a system copy it could not replace wins.
+# A newer release kyq_update put in ~/.local/bin beside a system copy it could not replace wins.
 kb=$work/kyqbin
 mkdir -p "$kb/sys" "$kb/home/.local/bin"
-printf '#!/bin/sh\necho 1\n' >"$kb/sys/kyquickstart"
-cp "$kb/sys/kyquickstart" "$kb/home/.local/bin/kyquickstart"
+printf '#!/bin/sh\necho 0.4.2.9\n' >"$kb/sys/kyquickstart"
+printf '#!/bin/sh\necho 0.4.2.10\n' >"$kb/home/.local/bin/kyquickstart"
 chmod +x "$kb/sys/kyquickstart" "$kb/home/.local/bin/kyquickstart"
 # shellcheck disable=SC2016 # expands in the inner bash
 kyqbin() { env -u KYQS_KYQUICKSTART HOME="$kb/home" PATH="$kb/sys:$PATH" bash -c 'source "$1"; echo "$KYQ_BIN"' t "$ROOT/kyqs-ai"; }
 [ "$(kyqbin)" = "$kb/sys/kyquickstart" ] || fail "a writable copy on PATH lost to ~/.local/bin: $(kyqbin)"
 chmod 555 "$kb/sys"
 got=$(kyqbin)
-chmod 755 "$kb/sys"
 [ "$got" = "$kb/home/.local/bin/kyquickstart" ] || [ "$(id -u)" = 0 ] || fail "the system copy hid the updated ~/.local/bin one: $got"
-ok "kyquickstart: an update installed beside a read-only system copy is the one used"
+printf '#!/bin/sh\necho 0.4.2.8\n' >"$kb/home/.local/bin/kyquickstart"
+[ "$(kyqbin)" = "$kb/sys/kyquickstart" ] || fail "an older ~/.local/bin copy beat a newer system one: $(kyqbin)"
+chmod 755 "$kb/sys"
+ok "kyquickstart: a newer update installed beside a read-only system copy is the one used"
 
 # finish: a pager that fails still leaves the print offer and the reminders.
 fr=$work/finish

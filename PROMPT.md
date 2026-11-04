@@ -35,7 +35,7 @@ and into a transcript. So:
   for it in chat. Tell them to run, in their own terminal:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
   `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
-  `kube-*` target is a Secret the user creates with their own admin kubeconfig, once the
+  `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
   `npm` app has been applied (it creates the namespace). Give them this as a `step` line in
   `handover.tsv` and in chat, for their own terminal; the name, namespace and key are
   KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
@@ -43,6 +43,7 @@ and into a transcript. So:
   kubectl context: tell the user to `export KUBECONFIG=<their admin kubeconfig for that cluster>` first.
   `bash -c 'read -rsp "Cloudflare token: " T && echo && printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
   then `kubectl -n kyq-edge label secret cloudflare-dns ky.managed-by=kyquickstart --overwrite`.
+  Once they say it is done, rerun `apply`.
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
   and add a step to rotate it in the handover.
 

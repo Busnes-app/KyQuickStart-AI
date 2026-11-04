@@ -51,7 +51,8 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 ## Local Contracts
 
 - Secret values never enter the agent's conversation: generated on servers, moved by pipe,
-  supplied by the user through `put-secret`, resolved into the 0600 handover only by
+  supplied by the user through `put-secret` (on `kube-*`, a `kubectl` step PROMPT.md section 0
+  gives the user), resolved into the 0600 handover only by
   `bin/handover` after the agent exits; the agent checks locations with `test -s` and never
   runs it. Claude hands-off denies Read on every run's `handover.txt`, `~/.ssh` and `~/.kube`.
   `handover.tsv` holds locations, never values.

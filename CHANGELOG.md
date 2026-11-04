@@ -28,15 +28,15 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 - Hostile-review pass 2. `revoke kube-<name>` with no registration (after `remove-cluster`,
   or a mistyped name) refuses when the cluster has no such ServiceAccount, instead of reporting
   success, and says which cluster it revoked on. `put-secret` refuses a directory instead of
-  making it 0600, and loads the key into ssh-agent first, as `handover` does. Ctrl-C in the
+  making it 0600, and loads the key into ssh-agent first, as `handover` does for server secrets. Ctrl-C in the
   setup form removes the unstarted run, like `q`. The run's own ssh-agent keeps the key for
-  the whole run instead of 12 hours. The tmux session runs on its own server (`tmux -L
-  kyqs-ai`), so it keeps this shell's API keys and proxy settings; reattach a detached run with
-  `tmux -L kyqs-ai attach`. Claude hands-off also denies Read on older runs' `handover.txt` and
-  every registered kubeconfig. A release installed in `~/.local/bin` beside a read-only system
-  copy is the one used. `add-host` refuses to move an alias to another port, a failing pager no
+  the whole run instead of 12 hours. The tmux session gets this shell's environment (API keys,
+  proxy settings) even when a tmux server is already running, and no longer picks up a stale
+  `KYQS_*` setting from it. Claude hands-off also denies Read on older runs' `handover.txt` and
+  every registered kubeconfig. A newer release installed in `~/.local/bin` beside a read-only
+  system copy is the one used. `add-host` refuses to move an alias to another port, a failing pager no
   longer skips the closing reminders, a revoked server no longer asks for the key, and
-  `revoke kyq-<name>` works.
+  `revoke kyq-<name>` works for a server named `<name>`.
 
 - `./kyqs-ai upgrade [run-dir]` upgrades an installed suite. It downloads the newest
   `kyquickstart` release into the run (the latest one by default), refreshes the run's prompt
