@@ -680,8 +680,10 @@ older() { # <a> <b>: version a is older than b (X.Y.Z[.N])
 # use that one once it is newer, or every start offers the same download again.
 KYQ_HOME_BIN=$HOME/.local/bin/kyquickstart
 if [ -z "${KYQS_KYQUICKSTART+set}" ] && [ -n "$KYQ_BIN" ] && [ "$KYQ_BIN" != "$KYQ_HOME_BIN" ] && [ ! -w "$(dirname "$KYQ_BIN")" ] &&
-	[ -x "$KYQ_HOME_BIN" ] && older "$("$KYQ_BIN" version 2>/dev/null | head -1)" "$("$KYQ_HOME_BIN" version 2>/dev/null | head -1)"; then
-	KYQ_BIN=$KYQ_HOME_BIN
+	[ -x "$KYQ_HOME_BIN" ]; then
+	v=$("$KYQ_BIN" version 2>/dev/null | head -1) || true
+	# A development build is never replaced (kyq_update)
+	if [ "$v" != dev ] && older "$v" "$("$KYQ_HOME_BIN" version 2>/dev/null | head -1)"; then KYQ_BIN=$KYQ_HOME_BIN; fi
 fi
 
 # kyq_update: offers the latest kyquickstart release when the one in use is older or missing.
@@ -909,8 +911,9 @@ case $cmd in start | resume | upgrade)
 		tmux_env
 		# A running tmux server gives new sessions its own environment, not this shell's (API keys,
 		# proxies): pass it in a private file, not on argv, and delete it as the session starts.
+		# The terminal and tmux settings stay tmux's own.
 		envf=$(mktemp)
-		export -p >"$envf"
+		(unset TERM TERM_PROGRAM TERM_PROGRAM_VERSION TMUX TMUX_PANE SHLVL && export -p) >"$envf"
 		s=0
 		# shellcheck disable=SC2016 # $0, $1, $@ and $? are the inner bash's, not this script's
 		tmux new-session -s "kyqs-ai-$$" env "${TMUX_ENV[@]}" bash -c '. "$1" 2>/dev/null; rm -f "$1"; shift; "$0" "$@"; printf "\nkyqs-ai exited (%s). Press Enter to close this window. " "$?"; read -r _' "$ROOT/kyqs-ai" "$envf" "$cmd" "$@" || s=$?

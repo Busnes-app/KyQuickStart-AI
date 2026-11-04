@@ -36,7 +36,8 @@ and into a transcript. So:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
   `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
   `kube-*` target (on a site whose only targets are `kube-*`, whichever NPM) is a Secret the user creates with their own admin kubeconfig, once the
-  `npm` app has been applied (it creates the namespace). Give them this as a `step` line in
+  `npm` app has been applied (it creates the namespace; for an existing NPM, `kyq-edge` must
+  already exist with the label `ky.managed-by=kyquickstart`, `docs/edge.md`). Give them this as a `step` line in
   `handover.tsv` and in chat, for their own terminal; the name, namespace and key are
   KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
   `credentials: {secret: cloudflare-dns, key: api_token}`. Both commands use the current
