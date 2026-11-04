@@ -105,6 +105,11 @@ printf 'kyq-core\n' >"$f/hosts.txt"
 printf 'lab.example.com\n\n\n\n\n\nOrg\nboss.adm\nboss@example.com\nowner1\nme@example.com\n\n\n\n' |
 	"$ROOT/bin/interview" "$f" >/dev/null || fail "interview (Docker only): did not finish"
 grep -qF 'proxy: "new-npm:kyq-core"' "$y" || fail "interview: no new NPM offered on a Docker target: $(grep proxy "$y")"
+# put-secret takes no kube-* target: a Kubernetes-only site is told to use kubectl instead.
+printf 'kube-lab\n' >"$f/hosts.txt"
+out=$(printf 'lab.example.com\n\n\n\n' | "$ROOT/bin/interview" "$f" 2>&1 || true)
+grep -qF 'Cloudflare DNS (you create the Secret with kubectl)' <<<"$out" || fail "interview: Kubernetes-only site sent to put-secret for the DNS token"
+grep -qF 'put-secret)' <<<"$out" && fail "interview: Kubernetes-only site offered put-secret"
 ok "interview writes ticked apps, exposure, placement and refused-then-valid accounts; offers NPM on Docker; q quits"
 
 data=$work/srv-ky

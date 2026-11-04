@@ -21,6 +21,11 @@ It gives you a command that stores it straight on the server:
 It strips leading and trailing spaces and blank lines from what you paste, stores the rest
 without a final newline, and refuses an empty secret. You can also pipe the value in.
 
+`put-secret` takes `local` and `kyq-<name>` targets only. For a Cloudflare DNS token used by
+NPM on a Kubernetes cluster, the agent gives you a `kubectl` command instead: run it with your
+admin kubeconfig. It asks for the token at a hidden prompt and stores it as the Secret
+`kyq-edge/cloudflare-dns`, the one KyQuickStart's `docs/edge.md` names.
+
 ## Secrets
 
 - The prompt has the agent generate secrets on the servers and move them by pipe, so the

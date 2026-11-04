@@ -34,6 +34,14 @@ and into a transcript. So:
 - When you need a secret only the user has (a DNS API token, a mail password), do **not** ask
   for it in chat. Tell them to run, in their own terminal:
   `kyqs-ai put-secret <target> /srv/ky/<app>/secrets/<name>` (hidden input, stored 0600).
+  `put-secret` takes only `local` and `kyq-*` targets. The Cloudflare DNS token for NPM on a
+  `kube-*` target is a Secret the user creates with their own admin kubeconfig, once the
+  `npm` app has been applied (it creates the namespace). Give them this as a `step` line in
+  `handover.tsv` and in chat, for their own terminal; the name, namespace and key are
+  KyQuickStart's (`docs/edge.md`, "The Cloudflare token"), and `stack.yaml` refers to it as
+  `credentials: {secret: cloudflare-dns, key: api_token}`:
+  `bash -c 'read -rsp "Cloudflare token: " T && echo && printf %s "$T" | kubectl create secret generic cloudflare-dns -n kyq-edge --from-file=api_token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -'`
+  then `kubectl -n kyq-edge label secret cloudflare-dns ky.managed-by=kyquickstart --overwrite`.
 - If a secret ever appears in your output anyway, say so to the user immediately, name it,
   and add a step to rotate it in the handover.
 
@@ -170,7 +178,8 @@ KyIdentity is external too: say so in the form. Internal names go under the inte
 and stay out of public DNS; external names go under the domain and outside the internal one.
 With `lan_dns`, KyDNS's private zone must contain both domains.
 
-A DNS token or SMTP password arrives through `put-secret`, never in chat; on an existing proxy
+A DNS token or SMTP password arrives through `put-secret` (a DNS token for NPM on Kubernetes
+through the user's `kubectl` step in section 0), never in chat; on an existing proxy
 you touch only the hosts you create.
 
 Then run preflight (section 5) **before** writing the plan, so the plan fits the hardware.

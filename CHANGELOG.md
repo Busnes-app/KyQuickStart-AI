@@ -21,6 +21,11 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
   `revoke-host.sh` ends kyops's sessions, `prepare-host.sh` works without per-user groups,
   `redact` masks credentials in URLs, and the setup form offers a new NPM on Docker targets.
 
+- On a Kubernetes-only site, the setup form and the agent no longer send you to `put-secret`
+  (which takes no `kube-*` target) for the Cloudflare DNS token. The agent gives you the
+  `kubectl` command that stores it as KyQuickStart's `kyq-edge/cloudflare-dns` Secret from a
+  hidden prompt.
+
 - `./kyqs-ai upgrade [run-dir]` upgrades an installed suite. It downloads the newest
   `kyquickstart` release into the run (the latest one by default), refreshes the run's prompt
   and helpers, records both versions in `launch.txt`, and starts the run's agent on the new
