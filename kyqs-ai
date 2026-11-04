@@ -884,8 +884,9 @@ upgrade() {
 	claim_run "$run"
 	access_left "$run" || confirm "The agent cannot reach these. Upgrade anyway?" || die "give the agent access again (above), then run kyqs-ai upgrade"
 	have=$(run_kyq_version "$run") || {
-		say "The run's kyquickstart does not run here (its version check failed); replacing it."
-		have=none
+		# the version it recorded still guards against a downgrade
+		have=$(sed -n 's/^kyquickstart: //p' "$run/launch.txt")
+		say "The run's kyquickstart does not run here (its version check failed); replacing it (recorded: ${have:=none})."
 	}
 	new=$("$KYQ_BIN" version | head -1) || die "$KYQ_BIN does not run here (its version check failed)"
 	case $have$new in *dev* | none*) ;; *) ! older "$new" "$have" || die "kyquickstart $new is older than the run's $have" ;; esac
