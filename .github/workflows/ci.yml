@@ -19,6 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: shellcheck -x kyqs-ai bin/* test/*.sh
+      - run: scripts/check-no-binaries.sh
       - run: test/unit.sh
       - run: test/e2e.sh
       - run: test/ssh-policy.sh
