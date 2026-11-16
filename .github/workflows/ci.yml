@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -15,7 +16,9 @@ concurrency:
 
 jobs:
   linux:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: shellcheck -x kyqs-ai bin/* test/*.sh
@@ -26,14 +29,18 @@ jobs:
 
   macos:
     # The launcher runs on operator workstations: bash 3.2 and BSD tools.
+    if: github.event.pull_request.draft != true
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: test/unit.sh
       - run: bash -n kyqs-ai && ./kyqs-ai help >/dev/null
 
   kube-tls:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,7 +53,9 @@ jobs:
 
   kube:
     # A real cluster (kind, preinstalled on the runner) for add-cluster's ServiceAccount.
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the qualified standard-Go kubectl
