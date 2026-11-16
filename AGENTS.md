@@ -138,4 +138,6 @@ installs and ongoing operations on Docker over SSH and Kubernetes. Third-party a
 
 ## Child DOX Index
 
+- `docs/AGENTS.md` — mdBook manual, chapter ownership and documentation checks.
+
 - `test/tls/AGENTS.md`: native Kubernetes TLS fixtures and separation from real-cluster lifecycle checks.
