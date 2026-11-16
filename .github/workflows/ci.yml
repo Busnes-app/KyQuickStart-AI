@@ -29,6 +29,8 @@ jobs:
 
   macos:
     # The launcher runs on operator workstations: bash 3.2 and BSD tools.
+    # After linux, which runs the same unit tests: a broken change never takes a macOS runner.
+    needs: linux
     if: github.event.pull_request.draft != true
     runs-on: macos-latest
     timeout-minutes: 10
