@@ -25,9 +25,11 @@ Go's strong TLS policy ([Strong updates](#what-is-enforced)). Without it, instal
 - **Go's FIPS 140 TLS policy.** Every `gh` call runs with `GODEBUG=fips140=on` (an explicit
   `fips140=only` and other `GODEBUG` settings are kept). This allows TLS 1.2+ and certificate
   chains of RSA-2048+ or P-256+ keys only. This is not a FIPS certification claim.
-- **A Go 1.25+ `gh`.** The launcher reads the Go release from the `gh` binary's own build
-  information (no Go toolchain needed) and refuses to run a `gh` built with Go 1.24 or earlier,
-  or one it cannot read (a wrapper script): under `fips140=on` Go 1.24 drops hybrid
+- **A Go 1.25+ `gh`.** The launcher reads the `gh` binary's own build information (no Go
+  toolchain needed): its main package must be the GitHub CLI's (`github.com/cli/cli/v2/cmd/gh`)
+  and its Go release 1.25 or later. A launcher or proxy installed as `gh` (a snap link, a
+  version manager's shim), a `gh` built with Go 1.24 or earlier and one it cannot read (a
+  wrapper script) are refused: under `fips140=on` Go 1.24 drops hybrid
   post-quantum X25519MLKEM768 and negotiates classical P-256 or P-384 only. Go 1.25 keeps it.
   Distribution builds (for example `go1.27rc2-X:nodwarf5`) are accepted by their release line.
 - **Digest.** The download must match the SHA-256 digest GitHub publishes for that asset.

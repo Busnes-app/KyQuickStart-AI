@@ -327,9 +327,18 @@ attestation) printf '%s\n' "$@" >"$KYQS_TEST_UPD/attest-args"; exit "${KYQS_TEST
 esac
 exit
 EOF
-gh_built_with() { # <dir> <go version>: the stub gh, carrying a Go binary's build info for that version
+gh_built_with() { # <dir> <go version> [main package]: the stub gh with a Go binary's build info
+	# Laid out as Go writes it: header, length-prefixed version, then the length-prefixed module
+	# info between its sentinels. A version of 32-126 bytes gets a printable length byte.
 	mkdir -p "$1"
-	{ cat "$upd/gh.sh"; printf '\377 Go buildinf:\010\002\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\010%s\303\001' "$2"; } >"$1/gh"
+	{
+		cat "$upd/gh.sh"
+		printf '\377 Go buildinf:\010\002\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0'
+		# shellcheck disable=SC2059 # the format is the length byte
+		printf "\\$(printf '%03o' "${#2}")"
+		printf '%s\303\001\060\167\257\014\222\164\010\002\101\341\301\007\346\326\030\346' "$2"
+		printf 'path\t%s\nmod\tgithub.com/cli/cli/v2\tv2.83.0\t\n\371\062\103\061\206\030\040\162' "${3:-github.com/cli/cli/v2/cmd/gh}"
+	} >"$1/gh"
 	chmod +x "$1/gh"
 }
 gh_built_with "$upd/gh-bin" go1.25.5
@@ -369,6 +378,13 @@ mkdir -p "$upd/ghscript-bin" && cp "$upd/gh.sh" "$upd/ghscript-bin/gh" && chmod 
 [ "$(run_update "$upd/ghscript-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.9 ] || fail 'update ran a gh without Go build info'
 gh_built_with "$upd/gh127-bin" go1.27rc2-X:nodwarf5
 [ "$(run_update "$upd/gh127-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.10 ] || fail 'update refused a Go 1.27 distribution gh'
+# A version of 32 or more bytes has a printable length byte before it.
+gh_built_with "$upd/ghlong-bin" go1.27rc2-X:nodwarf5,boringcrypto,jsonv2
+[ "$(run_update "$upd/ghlong-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.10 ] || fail 'update refused a gh with a long Go version'
+# A Go 1.25 launcher or proxy named gh is not gh: its version says nothing about the gh it starts.
+gh_built_with "$upd/ghother-bin" go1.25.5 example.com/proxy/cmd/shim
+[ "$(run_update "$upd/ghother-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.9 ] || fail 'update trusted a Go program that is not gh'
+[ ! -e "$upd/godebug" ] || fail 'update ran a Go program that is not gh'
 ok 'kyquickstart update: gh only, Go 1.25+ gh, FIPS TLS policy, digest and tag-pinned attestation, X.Y.Z.N order'
 
 # upgrade: the run gets the new kyquickstart, prompt and helpers, and its agent the upgrade kickoff.

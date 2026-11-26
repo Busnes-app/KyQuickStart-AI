@@ -29,11 +29,34 @@ if [ -z "${KYQS_TEST_UNSUPPORTED_KUBECTL:-}" ]; then
 	export KYQS_TEST_UNSUPPORTED_KUBECTL=$work/kubectl-openssl
 fi
 "$KYQS_TEST_KUBECTL" version --client -o json
-# The launcher's gh check reads a real Go binary's build info as the binary reports it.
-want=$("$KYQS_TEST_KUBECTL" version --client -o json | sed -n 's/.*"goVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+# The launcher's gh check reads real Go binaries' build info as Go itself reports it, and runs
+# gh only when the binary is the GitHub CLI built with Go 1.25 or later.
 # shellcheck disable=SC2016 # expands in the inner bash
-got=$(bash -c 'source "$1"; go_build_version "$2"' kyqs-ai-test "$ROOT/kyqs-ai" "$KYQS_TEST_KUBECTL")
-[ -n "$want" ] && [ "$got" = "$want" ] || { echo "FAIL: go_build_version read '$got', kubectl reports '$want'" >&2; exit 1; }
-echo "ok: go_build_version reads $got from the real kubectl"
+info() { bash -c 'source "$1"; go_build_info "$2"' kyqs-ai-test "$ROOT/kyqs-ai" "$1"; }
+# shellcheck disable=SC2016 # expands in the inner bash
+gh_ok() { PATH="$(dirname "$1"):$PATH" bash -c 'source "$1"; gh_go_ok' kyqs-ai-test "$ROOT/kyqs-ai"; }
+oracle() { printf '%s %s\n' "$(go version -m "$1" | awk '$1 == "path" { print $2 }')" "$(go version "$1" | sed 's/^[^:]*: //')"; }
+check() { # <binary> <want gh_go_ok: 0 or 1>
+	local got
+	got=$(info "$1")
+	[ -n "$got" ] && [ "$got" = "$(oracle "$1")" ] || { echo "FAIL: go_build_info read '$got' from $1, Go reports '$(oracle "$1")'" >&2; exit 1; }
+	if gh_ok "$1" 2>/dev/null; then [ "$2" = 0 ]; else [ "$2" = 1 ]; fi || { echo "FAIL: gh_go_ok on $1 ($got) did not return $2" >&2; exit 1; }
+	echo "ok: $got (gh_go_ok $2)"
+}
+# A Go 1.25+ program that is not gh, named gh, is refused.
+mkdir "$work/not-gh" && ln -s "$KYQS_TEST_KUBECTL" "$work/not-gh/gh"
+check "$work/not-gh/gh" 1
+# gh's main package built here with a version over 32 bytes, so its length byte is printable.
+mkdir -p "$work/long/src/cmd/gh" "$work/long/bin"
+printf 'module github.com/cli/cli/v2\n\ngo 1.25\n' >"$work/long/src/go.mod"
+printf 'package main\n\nfunc main() {}\n' >"$work/long/src/cmd/gh/main.go"
+(cd "$work/long/src" && GOEXPERIMENT=fieldtrack,jsonv2,arenas,cgocheck2 GOFLAGS='' go build -o "$work/long/bin/gh" ./cmd/gh)
+[ "$(go version "$work/long/bin/gh" | sed 's/^[^:]*: //' | wc -c)" -gt 33 ] || { echo "FAIL: the long-version fixture is short" >&2; exit 1; }
+check "$work/long/bin/gh" 0
+# The real GitHub CLI, where installed (CI's runner image has it).
+if command -v gh >/dev/null && go version "$(command -v gh)" >/dev/null 2>&1; then
+	mkdir "$work/real-gh" && ln -s "$(command -v gh)" "$work/real-gh/gh"
+	check "$work/real-gh/gh" 0
+fi
 cd "$ROOT/test/tls"
 GODEBUG=fips140=off go test -race -count=1 -v probe_test.go

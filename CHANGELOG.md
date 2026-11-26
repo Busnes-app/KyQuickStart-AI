@@ -7,8 +7,8 @@ a clone, and `./kyqs-ai` offers to fast-forward it at start. A run records the c
 ## Unreleased
 
 - Post-quantum TLS under the strong profiles. `KYQS_STRONG_KUBE_TLS=1` now needs a standard
-  Go 1.25+ kubectl (was 1.24+), and release checks run `gh` only when it was built with Go
-  1.25 or later: under `GODEBUG=fips140=on` Go 1.24 drops hybrid X25519MLKEM768 key exchange,
+  Go 1.25+ kubectl (was 1.24+), and release checks run `gh` only when its binary is the GitHub
+  CLI built with Go 1.25 or later (a launcher or proxy installed as `gh` is refused): under `GODEBUG=fips140=on` Go 1.24 drops hybrid X25519MLKEM768 key exchange,
   Go 1.25 keeps it. **Upgrade impact:** a Go 1.24 kubectl is refused in the strong profile
   (kubectl 1.35+ is Go 1.25); with an older `gh` the launcher says so and skips the update
   check instead of running it.
