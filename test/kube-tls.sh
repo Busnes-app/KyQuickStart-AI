@@ -29,5 +29,11 @@ if [ -z "${KYQS_TEST_UNSUPPORTED_KUBECTL:-}" ]; then
 	export KYQS_TEST_UNSUPPORTED_KUBECTL=$work/kubectl-openssl
 fi
 "$KYQS_TEST_KUBECTL" version --client -o json
+# The launcher's gh check reads a real Go binary's build info as the binary reports it.
+want=$("$KYQS_TEST_KUBECTL" version --client -o json | sed -n 's/.*"goVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+# shellcheck disable=SC2016 # expands in the inner bash
+got=$(bash -c 'source "$1"; go_build_version "$2"' kyqs-ai-test "$ROOT/kyqs-ai" "$KYQS_TEST_KUBECTL")
+[ -n "$want" ] && [ "$got" = "$want" ] || { echo "FAIL: go_build_version read '$got', kubectl reports '$want'" >&2; exit 1; }
+echo "ok: go_build_version reads $got from the real kubectl"
 cd "$ROOT/test/tls"
 GODEBUG=fips140=off go test -race -count=1 -v probe_test.go

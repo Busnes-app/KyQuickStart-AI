@@ -292,7 +292,7 @@ grep -qx 'gcstoptheworld=0,fips140=on' "$work/go-env" || fail 'Kubernetes TLS pr
 grep -qx -- '--insecure-skip-tls-verify=false' "$work/go-args" || fail 'Kubernetes TLS profile can skip verification'
 KYQS_STRONG_KUBE_TLS=1 GODEBUG=fips140=only kube_policy get pods
 grep -qx 'fips140=only' "$work/go-env" || fail 'Kubernetes TLS profile weakened only mode'
-for version in go1.23.9 devel-go1.27 ''; do
+for version in go1.23.9 go1.24.13 devel-go1.27 ''; do
 	KYQS_TEST_GO_VERSION=$version KYQS_STRONG_KUBE_TLS=1 kube_policy get pods >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an unsupported build'
 done
 KYQS_STRONG_KUBE_TLS=1 kube_policy get pods --insecure-skip-tls-verify=true >/dev/null 2>&1 && fail 'Kubernetes TLS profile accepted an insecure override'
@@ -314,7 +314,7 @@ ok 'Kubernetes TLS selection, build refusal, verification and Go-setting preserv
 # kyquickstart self-update: gh only, under the FIPS TLS policy, digest and tag-pinned attestation.
 upd=$work/update
 mkdir -p "$upd/gh-bin" "$upd/nogh-bin" "$upd/dest"
-cat >"$upd/gh-bin/gh" <<'EOF'
+cat >"$upd/gh.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${GODEBUG:-}" >>"$KYQS_TEST_UPD/godebug"
 case $1 in
@@ -325,13 +325,19 @@ release)
 attestation) printf '%s\n' "$@" >"$KYQS_TEST_UPD/attest-args"; exit "${KYQS_TEST_ATTEST:-0}" ;;
 *) exit 9 ;;
 esac
+exit
 EOF
-chmod +x "$upd/gh-bin/gh"
+gh_built_with() { # <dir> <go version>: the stub gh, carrying a Go binary's build info for that version
+	mkdir -p "$1"
+	{ cat "$upd/gh.sh"; printf '\377 Go buildinf:\010\002\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\010%s\303\001' "$2"; } >"$1/gh"
+	chmod +x "$1/gh"
+}
+gh_built_with "$upd/gh-bin" go1.25.5
 # curl must never carry a release: its TLS key policy is not ours to set.
 # shellcheck disable=SC2016 # expands in the stub, not here
 printf '#!/bin/sh\ntouch "$KYQS_TEST_UPD/curl-called"\nexit 1\n' >"$upd/nogh-bin/curl"
 chmod +x "$upd/nogh-bin/curl"
-for c in bash env readlink touch uname tr sed awk mktemp dirname mkdir sha256sum chmod mv rm head sort cat printf; do ln -s "$(command -v "$c")" "$upd/nogh-bin/$c"; done
+for c in bash env readlink touch uname tr sed awk grep mktemp dirname mkdir sha256sum chmod mv rm head sort cat printf; do ln -s "$(command -v "$c")" "$upd/nogh-bin/$c"; done
 asset=$(uname -s | tr '[:upper:]' '[:lower:]')-$(case $(uname -m) in x86_64 | amd64) echo amd64 ;; aarch64 | arm64) echo arm64 ;; *) uname -m ;; esac)
 good=$(printf '#!/bin/sh\necho 0.4.2.10\n' | sha256sum | awk '{print $1}')
 run_update() { # <PATH> [env...]: one kyq_update against an old 0.4.2.9 binary; prints its version after
@@ -355,7 +361,15 @@ run_update "$upd/gh-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good" GODEBUG=x509sha1
 [ "$(sort -u "$upd/godebug")" = x509sha1=0,fips140=only ] || fail "update dropped other Go settings or fips140=only: $(cat "$upd/godebug")"
 for f in "$upd"/dest/.kyquickstart.*; do [ ! -e "$f" ] || fail 'update left a temporary download behind'; done
 [ ! -e "$upd/curl-called" ] || fail 'update fell back to curl'
-ok 'kyquickstart update: gh only, FIPS TLS policy, digest and tag-pinned attestation, X.Y.Z.N order'
+# Under fips140=on a Go 1.24 gh drops hybrid post-quantum TLS: it is never run.
+gh_built_with "$upd/gh124-bin" go1.24.13
+[ "$(run_update "$upd/gh124-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.9 ] || fail 'update ran a Go 1.24 gh'
+[ ! -e "$upd/godebug" ] || fail 'update ran a Go 1.24 gh'
+mkdir -p "$upd/ghscript-bin" && cp "$upd/gh.sh" "$upd/ghscript-bin/gh" && chmod +x "$upd/ghscript-bin/gh"
+[ "$(run_update "$upd/ghscript-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.9 ] || fail 'update ran a gh without Go build info'
+gh_built_with "$upd/gh127-bin" go1.27rc2-X:nodwarf5
+[ "$(run_update "$upd/gh127-bin:$upd/nogh-bin" KYQS_TEST_DIGEST="$good")" = 0.4.2.10 ] || fail 'update refused a Go 1.27 distribution gh'
+ok 'kyquickstart update: gh only, Go 1.25+ gh, FIPS TLS policy, digest and tag-pinned attestation, X.Y.Z.N order'
 
 # upgrade: the run gets the new kyquickstart, prompt and helpers, and its agent the upgrade kickoff.
 ug=$work/upgrade
