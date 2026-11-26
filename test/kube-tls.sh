@@ -53,10 +53,14 @@ printf 'package main\n\nfunc main() {}\n' >"$work/long/src/cmd/gh/main.go"
 (cd "$work/long/src" && GOEXPERIMENT=fieldtrack,jsonv2,arenas,cgocheck2 GOFLAGS='' go build -o "$work/long/bin/gh" ./cmd/gh)
 [ "$(go version "$work/long/bin/gh" | sed 's/^[^:]*: //' | wc -c)" -gt 33 ] || { echo "FAIL: the long-version fixture is short" >&2; exit 1; }
 check "$work/long/bin/gh" 0
-# The real GitHub CLI, where installed (CI's runner image has it).
+# The installed gh, where there is one (CI's runner image has it). Go's own metadata, not the
+# launcher, decides what to expect: accepted only as the GitHub CLI built with Go 1.25+.
 if command -v gh >/dev/null && go version "$(command -v gh)" >/dev/null 2>&1; then
 	mkdir "$work/real-gh" && ln -s "$(command -v gh)" "$work/real-gh/gh"
-	check "$work/real-gh/gh" 0
+	read -r path version <<<"$(oracle "$work/real-gh/gh")"
+	want=1
+	[ "$path" = github.com/cli/cli/v2/cmd/gh ] && [[ $version =~ ^go1\.([0-9]+) ]] && ((10#${BASH_REMATCH[1]} >= 25)) && want=0
+	check "$work/real-gh/gh" "$want"
 fi
 cd "$ROOT/test/tls"
 GODEBUG=fips140=off go test -race -count=1 -v probe_test.go
