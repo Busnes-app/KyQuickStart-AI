@@ -212,7 +212,7 @@ work around it.
 | KyPost | KyPost-Server | Mail client, contacts (CardDAV), classification | `mail.` | Docker | Either | Uses an existing mail account; local AI model needs ~8 GB RAM |
 | KyDrive | kydrive-server | Files, shared workspaces, office documents | `drive.`, `office.` | Docker | Either | Euro-Office is not in the catalog: README path, ~4 GB RAM |
 | KyCalendar | KyCalendar | Calendars, CalDAV, tasks | `calendar.` | Docker, Kubernetes | Either | |
-| KyMessage | KyMessage-Server | Team chat on Matrix (Synapse, MAS, Element) | `chat.` + Matrix hosts | Docker | Either | Heavy; call media bypasses the edge on `media_address` |
+| KyMessage | KyMessages-Native | Team chat on Matrix (Synapse, MAS, Element) | `chat.` + Matrix hosts | Docker | Either | Heavy; call media bypasses the edge on `media_address` |
 | KyDNS | KyDNS-server | LAN DNS and service directory | LAN IP | Docker | **Internal only** | Optional. Refuses the edge on a Docker host that hides client addresses |
 
 The edge is Nginx Proxy Manager. On Kubernetes kyquickstart installs it (catalog `npm`); a

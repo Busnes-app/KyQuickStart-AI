@@ -4,8 +4,8 @@
 
 Read [CONTRIBUTING.md](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/CONTRIBUTING.md) before changing the product.
 It owns the contribution process, build prerequisites and required product checks.
-Read the repository's AGENTS.md chain when working with an agent. Native builds and tests
-require their documented operating systems, SDKs and devices.
+Read the repository's `AGENTS.md` chain when working with an agent. Local verification runs
+`shellcheck`, `test/unit.sh`, Docker-backed `test/e2e.sh`, and `kubectl`/`kind`-backed `test/kube.sh`.
 
 ## Build this manual
 

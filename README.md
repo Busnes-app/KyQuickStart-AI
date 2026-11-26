@@ -38,8 +38,8 @@ has completed suite admission yet, so the agent labels each one a test install. 
   [opencode](https://opencode.ai) (`opencode`). `tmux` is optional; with it the dashboard opens beside the agent (`kyqs-ai` starts a tmux session when you are not in one).
 - **Where the apps run:** this computer, servers, Kubernetes clusters, or a mix. Servers and
   this computer need Linux with Docker Engine and the compose plugin already installed (Podman
-  is not supported); servers need a login that can use `sudo` (once, [below](docs/TARGETS.md#connecting-your-servers-over-ssh)). Clusters need an
-  admin kubeconfig, `kubectl` on your computer (once, [below](docs/TARGETS.md#kubernetes-clusters)) and a persistent StorageClass.
+  is not supported); servers need a login that can use `sudo` (once, see [SSH setup](docs/TARGETS.md#connecting-your-servers-over-ssh)). Clusters need an
+  admin kubeconfig, `kubectl` on your computer (once, see [Kubernetes clusters](docs/TARGETS.md#kubernetes-clusters)) and a persistent StorageClass.
   Nothing installs Docker or Kubernetes for you.
   x86-64 is what the suite targets. Which product runs where:
   [KyQuickStart docs/redirect.md](https://github.com/Busnes-app/KyQuickStart/blob/master/docs/redirect.md).
@@ -59,7 +59,7 @@ The launcher walks you through:
 1. **Where to install.** This computer, one or more servers, or both. For each server give a
    short name, its address and your admin login.
 2. **Agent.** It picks from the agents installed on your computer, and for Claude Code and Codex
-   asks whether to run hands-off ([below](docs/AGENT-PERMISSIONS.md#hands-off-mode)).
+   asks whether to run hands-off (see [hands-off mode](docs/AGENT-PERMISSIONS.md#hands-off-mode)).
 3. **Setup form.** One question per screen: domain, apps, who reaches them, proxy and
    certificates, placement, the admin and everyday accounts, the recovery ceremony and mail.
    Lists are ticked with Space and confirmed with Enter (↑/↓ move, q quits); a review screen
