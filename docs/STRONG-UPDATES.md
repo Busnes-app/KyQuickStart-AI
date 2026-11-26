@@ -23,8 +23,15 @@ Go's strong TLS policy ([Strong updates](#what-is-enforced)). Without it, instal
   binary it has. There is no curl fallback: curl's TLS key policy belongs to its build, not to
   this project.
 - **Go's FIPS 140 TLS policy.** Every `gh` call runs with `GODEBUG=fips140=on` (an explicit
-  `fips140=only` and other `GODEBUG` settings are kept). In a Go 1.24+ build this allows TLS 1.2+
-  and certificate chains of RSA-2048+ or P-256+ keys only. This is not a FIPS certification claim.
+  `fips140=only` and other `GODEBUG` settings are kept). This allows TLS 1.2+ and certificate
+  chains of RSA-2048+ or P-256+ keys only. This is not a FIPS certification claim.
+- **A Go 1.25+ `gh`.** The launcher reads the `gh` binary's own build information (no Go
+  toolchain needed): its main package must be the GitHub CLI's (`github.com/cli/cli/v2/cmd/gh`)
+  and its Go release 1.25 or later. A launcher or proxy installed as `gh` (a snap link, a
+  version manager's shim), a `gh` built with Go 1.24 or earlier and one it cannot read (a
+  wrapper script) are refused: under `fips140=on` Go 1.24 drops hybrid
+  post-quantum X25519MLKEM768 and negotiates classical P-256 or P-384 only. Go 1.25 keeps it.
+  Distribution builds (for example `go1.27rc2-X:nodwarf5`) are accepted by their release line.
 - **Digest.** The download must match the SHA-256 digest GitHub publishes for that asset.
 - **Tag-pinned attestation.** `gh attestation verify` must accept a Sigstore build attestation
   whose certificate identity is
@@ -49,7 +56,7 @@ of these checks, or falling back to curl, fails.
 
 ## Out of scope
 
-`gh`'s own build and Go version, the user's `gh` login, `self_update`'s `git fetch` of this
+`gh`'s other build choices (beyond its Go release), the user's `gh` login, `self_update`'s `git fetch` of this
 checkout (your clone's remote and Git configuration; see [VERIFYING-RELEASES.md](VERIFYING-RELEASES.md)),
 model-provider CLIs and commands the agent runs. Those are stock tools with their own transport
 settings.

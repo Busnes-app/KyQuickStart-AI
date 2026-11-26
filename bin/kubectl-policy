@@ -51,10 +51,11 @@ if [ "$insecure" = true ] || [[ ! $server =~ ^[Hh][Tt][Tt][Pp][Ss]:// ]]; then
 	exit 1
 fi
 version=$(printf '%s\n' "$version" | sed -n 's/.*"goVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-if [[ $version =~ ^go1\.([0-9]+)\.[0-9]+$ ]] && ((10#${BASH_REMATCH[1]} >= 24)); then
+# Go 1.25 keeps hybrid post-quantum X25519MLKEM768 under fips140=on; 1.24 drops it.
+if [[ $version =~ ^go1\.([0-9]+)\.[0-9]+$ ]] && ((10#${BASH_REMATCH[1]} >= 25)); then
 	:
 else
-	echo 'kyqs-ai: the strong Kubernetes TLS profile needs a standard Go 1.24+ kubectl release build.' >&2
+	echo 'kyqs-ai: the strong Kubernetes TLS profile needs a standard Go 1.25+ kubectl release build.' >&2
 	exit 1
 fi
 

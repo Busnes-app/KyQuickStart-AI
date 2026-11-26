@@ -11,7 +11,7 @@ kubectl version --client -o json
 ```
 
 Every fixed launcher `kubectl` call goes through `bin/kubectl-policy`. In this
-profile the helper requires Go 1.24-or-later Go 1.x release metadata,
+profile the helper requires Go 1.25-or-later Go 1.x release metadata,
 selects `fips140=on` in that child process's GODEBUG, and requires a verified
 HTTPS kubeconfig. The local `version --client -o json` metadata probe must also succeed under
 that exact environment before a request; release metadata alone cannot identify
@@ -19,7 +19,9 @@ a vendor crypto backend or prove its runtime is usable. Startup failures include
 the actual runtime diagnostic; inherited unsupported Go settings may be the cause.
 Other Go settings remain; an explicitly selected `fips140=only` remains stricter.
 Unsupported/unidentifiable builds, invalid selector values and caller verification
-bypasses fail before a Kubernetes request. Every fixed helper call names one
+bypasses fail before a Kubernetes request. The floor is 1.25 because under
+`fips140=on` Go 1.24 offers only P-256 and P-384 for key exchange, while Go 1.25 keeps
+hybrid post-quantum X25519MLKEM768 first. Every fixed helper call names one
 kubeconfig first and permits no target, trust-anchor, TLS-name or credential
 overrides. The helper inspects
 that selected cluster before onboarding or revocation and refuses plain HTTP or
@@ -88,5 +90,6 @@ upstream Go TLS restrictions. Qualify custom clients with the full native matrix
 
 Sources:
 - https://go.dev/doc/go1.24#fips140
+- https://go.dev/doc/go1.25#cryptotlspkgcryptotls (X25519MLKEM768 allowed in FIPS 140-3 mode)
 - https://github.com/golang/go/blob/go1.24.0/src/crypto/tls/internal/fips140tls/fipstls.go
 - https://github.com/golang/go/blob/go1.24.0/src/crypto/tls/common.go#L1698

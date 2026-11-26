@@ -680,10 +680,49 @@ self_update() {
 
 KYQ_REPO=Busnes-app/KyQuickStart
 
-# gh_strong: gh under Go's FIPS 140 TLS policy (TLS 1.2+, RSA-2048+/P-256+ chains), keeping
-# other GODEBUG settings and an explicit fips140=only. See docs/STRONG-UPDATES.md.
+# go_build_info <file>: "<main package path> <Go version>" from a Go binary's build info
+# (Go 1.18+), read without a Go toolchain. After the "\377 Go buildinf:" header comes the
+# version, prefixed by its length (a printable byte when it is 32-126 bytes long), then the
+# module info, whose "path<TAB><package>" line names the program. Prints nothing otherwise.
+go_build_info() {
+	local info line v='' p='' rest
+	info=$({ LC_ALL=C tr -c '[:print:]' '\n' <"$1" || :; } | LC_ALL=C grep -m1 -A60 '^ Go buildinf:') || return 0
+	while IFS= read -r line; do
+		if [ -z "$v" ]; then
+			case $line in '' | ' Go buildinf:'*) continue ;; esac
+			rest=${line#?}
+			if [ "${line#go1.}" != "$line" ]; then
+				v=$line
+			elif [ "${rest#go1.}" != "$rest" ] && [ "$(LC_ALL=C printf '%d' "'${line:0:1}")" = "${#rest}" ]; then
+				v=$rest
+			else
+				return 0
+			fi
+		elif [ "$line" = path ]; then
+			IFS= read -r p
+			break
+		fi
+	done <<<"$info"
+	[ -z "$p" ] || printf '%s %s\n' "$p" "$v"
+}
+
+# gh_go_ok: gh on PATH is the GitHub CLI itself (not a launcher or proxy in front of it),
+# built with Go 1.25+. Under fips140=on, Go 1.24 drops hybrid post-quantum X25519MLKEM768
+# from TLS; 1.25 keeps it.
+gh_go_ok() {
+	local bin p='' v=''
+	bin=$(command -v gh) && [ -f "$bin" ] && read -r p v <<<"$(go_build_info "$bin")"
+	[ "$p" = github.com/cli/cli/v2/cmd/gh ] && [[ $v =~ ^go1\.([0-9]+) ]] && ((10#${BASH_REMATCH[1]} >= 25)) && return 0
+	echo "kyqs-ai: gh must be the GitHub CLI built with Go 1.25 or later (${bin:-gh}: ${p:-no Go build info}${v:+ $v}); update gh." >&2
+	return 1
+}
+
+# gh_strong: gh under Go's FIPS 140 TLS policy (TLS 1.2+, RSA-2048+/P-256+ chains, hybrid
+# X25519MLKEM768 kept), keeping other GODEBUG settings and an explicit fips140=only. See
+# docs/STRONG-UPDATES.md.
 gh_strong() {
 	local mode other
+	gh_go_ok || return 1
 	mode=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 == "fips140" { v = $2 } END { print v }')
 	[ "$mode" = only ] || mode=on
 	other=$(printf '%s\n' "${GODEBUG:-}" | tr ',' '\n' | awk -F= '$1 != "fips140" && NF { o = o (o == "" ? "" : ",") $0 } END { print o }')
@@ -717,6 +756,7 @@ fi
 kyq_update() {
 	local rel tag have os arch name url digest dest tmp sum
 	[ -n "$KYQ_BIN" ] || [ -z "${KYQS_KYQUICKSTART+set}" ] || return 0 # set empty on purpose: none
+	if command -v gh >/dev/null && ! gh_go_ok; then return 0; fi
 	rel=$(latest_release) || true
 	tag=$(printf '%s\n' "$rel" | sed -n 's/^tag v//p')
 	if [ -z "$tag" ]; then
