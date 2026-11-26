@@ -26,7 +26,7 @@ Answer yes to "Install on this computer?" (or run `./kyqs-ai add-local`). No SSH
 1. Creates a dedicated key, `~/.ssh/kyquickstart-ai/id_ed25519`. A passphrase is recommended;
    the launcher loads it into `ssh-agent` for 12 hours.
 2. Logs in **as you**, with `sudo`, once, and runs [`bin/prepare-host.sh`](../bin/prepare-host.sh)
-   to create the agent's own login ([next section](AGENT-PERMISSIONS.md#letting-the-agent-work-without-admin-rights)).
+   to create the agent's own login (see [Agent permissions](AGENT-PERMISSIONS.md#letting-the-agent-work-without-admin-rights)).
 3. Pins the server's host key. The server reports its key fingerprint over your own login, and
    the launcher refuses to continue if the network answers with a different one. A changed key
    is never accepted later either.

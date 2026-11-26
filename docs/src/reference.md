@@ -6,12 +6,10 @@ The [repository README](https://github.com/Busnes-app/KyQuickStart-AI/blob/maste
 environment reference and supported deployment/distribution paths. Read the version matching your installation.
 The links below open repository documents and need network access.
 
-
-
 ## Detailed product guides
 
-- [below](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/TARGETS.md)
-- [below](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/AGENT-PERMISSIONS.md)
+- [Install targets](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/TARGETS.md)
+- [Agent permissions](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/AGENT-PERMISSIONS.md)
 - [Assurance case](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/ASSURANCE-CASE.md)
 - [Verifying releases](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/VERIFYING-RELEASES.md)
 - [During and after a run](https://github.com/Busnes-app/KyQuickStart-AI/blob/master/docs/RUNS.md)

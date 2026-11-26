@@ -6,7 +6,7 @@ Commands and unlinked file paths below are relative to the repository root.
 
 ## Letting the agent work without admin rights
 
-The agent never gets root, your password or your cluster-admin kubeconfig (clusters: [above](TARGETS.md#kubernetes-clusters)).
+The agent never gets root, your password or your cluster-admin kubeconfig (clusters: [Kubernetes clusters](TARGETS.md#kubernetes-clusters)).
 On servers, `prepare-host.sh` creates a user `kyops` that:
 
 - logs in only with the KyQuickStart AI key (`restrict`: no forwarding, no terminal),
